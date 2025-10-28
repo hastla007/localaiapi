@@ -12,6 +12,24 @@
         .tab-button.active { background-color: #3b82f6; color: white; }
         .gallery-item { transition: transform 0.2s; }
         .gallery-item:hover { transform: scale(1.05); }
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .preview-container {
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -37,20 +55,23 @@
     <!-- Navigation Tabs -->
     <nav class="bg-white shadow-md sticky top-0 z-10">
         <div class="container mx-auto px-4">
-            <div class="flex space-x-2 py-3">
-                <button onclick="showTab('overview')" class="tab-button active px-6 py-2 rounded-lg font-medium transition">
+            <div class="flex space-x-2 py-3 overflow-x-auto">
+                <button onclick="showTab('overview')" class="tab-button active px-6 py-2 rounded-lg font-medium transition whitespace-nowrap">
                     📊 Overview
                 </button>
-                <button onclick="showTab('results')" class="tab-button px-6 py-2 rounded-lg font-medium transition">
+                <button onclick="showTab('playground')" class="tab-button px-6 py-2 rounded-lg font-medium transition whitespace-nowrap">
+                    🎮 Playground
+                </button>
+                <button onclick="showTab('results')" class="tab-button px-6 py-2 rounded-lg font-medium transition whitespace-nowrap">
                     🖼️ Results
                 </button>
-                <button onclick="showTab('metrics')" class="tab-button px-6 py-2 rounded-lg font-medium transition">
+                <button onclick="showTab('metrics')" class="tab-button px-6 py-2 rounded-lg font-medium transition whitespace-nowrap">
                     📈 Metrics
                 </button>
-                <button onclick="showTab('logs')" class="tab-button px-6 py-2 rounded-lg font-medium transition">
+                <button onclick="showTab('logs')" class="tab-button px-6 py-2 rounded-lg font-medium transition whitespace-nowrap">
                     📝 Logs
                 </button>
-                <button onclick="showTab('settings')" class="tab-button px-6 py-2 rounded-lg font-medium transition">
+                <button onclick="showTab('settings')" class="tab-button px-6 py-2 rounded-lg font-medium transition whitespace-nowrap">
                     ⚙️ Settings
                 </button>
             </div>
@@ -92,8 +113,8 @@
                         <button onclick="refreshStatus()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded transition">
                             🔄 Refresh Status
                         </button>
-                        <button onclick="testGeneration()" class="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded transition">
-                            🧪 Test Generation
+                        <button onclick="showTab('playground')" class="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded transition">
+                            🎮 Open Playground
                         </button>
                     </div>
                 </div>
@@ -130,6 +151,238 @@
                 <div id="available-models-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <!-- Will be populated by JS -->
                 </div>
+            </div>
+        </div>
+
+        <!-- Playground Tab -->
+        <div id="playground-tab" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- Text-to-Image -->
+                <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                        🎨 Text-to-Image Generation
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Input Panel -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Model</label>
+                                <select id="txt2img-model" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    <option value="flux">Flux.1-dev (Best Quality)</option>
+                                    <option value="sdxl" selected>SDXL (Faster)</option>
+                                    <option value="sd3">Stable Diffusion 3</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Prompt</label>
+                                <textarea id="txt2img-prompt" rows="4" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="a beautiful sunset over mountains, digital art, highly detailed"></textarea>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Negative Prompt</label>
+                                <textarea id="txt2img-negative" rows="2" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="blurry, low quality, distorted"></textarea>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Width</label>
+                                    <select id="txt2img-width" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                        <option value="512">512</option>
+                                        <option value="768">768</option>
+                                        <option value="1024" selected>1024</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Height</label>
+                                    <select id="txt2img-height" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                        <option value="512">512</option>
+                                        <option value="768">768</option>
+                                        <option value="1024" selected>1024</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Steps: <span id="txt2img-steps-value">30</span>
+                                </label>
+                                <input type="range" id="txt2img-steps" min="10" max="50" value="30" 
+                                    class="w-full" oninput="document.getElementById('txt2img-steps-value').textContent = this.value">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Guidance Scale: <span id="txt2img-guidance-value">7.5</span>
+                                </label>
+                                <input type="range" id="txt2img-guidance" min="1" max="20" step="0.5" value="7.5" 
+                                    class="w-full" oninput="document.getElementById('txt2img-guidance-value').textContent = this.value">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Seed (optional)</label>
+                                <input type="number" id="txt2img-seed" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                    placeholder="Random seed or leave empty">
+                            </div>
+                            
+                            <button onclick="generateImage()" 
+                                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg transition">
+                                🎨 Generate Image
+                            </button>
+                        </div>
+                        
+                        <!-- Preview Panel -->
+                        <div>
+                            <div class="bg-gray-50 rounded-lg border-2 border-gray-200 preview-container" id="txt2img-preview">
+                                <div class="text-center text-gray-400">
+                                    <svg class="w-24 h-24 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <p>Your generated image will appear here</p>
+                                </div>
+                            </div>
+                            <div id="txt2img-info" class="mt-4 text-sm text-gray-600"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Image-to-Text -->
+                <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                        🔍 Image-to-Text (Captioning)
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Input Panel -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Model</label>
+                                <select id="img2txt-model" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    <option value="llava">LLaVA 1.6 (Detailed)</option>
+                                    <option value="blip">BLIP-2 (Faster)</option>
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Upload Image</label>
+                                <input type="file" id="img2txt-upload" accept="image/*" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                    onchange="previewImageToText(this)">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Prompt (for LLaVA)</label>
+                                <textarea id="img2txt-prompt" rows="3" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Describe this image in detail.">Describe this image in detail.</textarea>
+                            </div>
+                            
+                            <button onclick="captionImage()" id="caption-btn" disabled
+                                class="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 px-6 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                🔍 Generate Caption
+                            </button>
+                            
+                            <div id="img2txt-result" class="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200 min-h-24">
+                                <p class="text-gray-400 text-center">Caption will appear here</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Preview Panel -->
+                        <div>
+                            <div class="bg-gray-50 rounded-lg border-2 border-gray-200 preview-container" id="img2txt-preview">
+                                <div class="text-center text-gray-400">
+                                    <svg class="w-24 h-24 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                    </svg>
+                                    <p>Upload an image to caption</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Image-to-Video -->
+                <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                        🎬 Image-to-Video (SVD)
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Input Panel -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Upload Image</label>
+                                <input type="file" id="img2vid-upload" accept="image/*" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                    onchange="previewImageToVideo(this)">
+                                <p class="text-xs text-gray-500 mt-1">Will be resized to 1024x576 for optimal results</p>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Number of Frames: <span id="img2vid-frames-value">14</span>
+                                </label>
+                                <input type="range" id="img2vid-frames" min="8" max="25" value="14" 
+                                    class="w-full" oninput="document.getElementById('img2vid-frames-value').textContent = this.value">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Steps: <span id="img2vid-steps-value">25</span>
+                                </label>
+                                <input type="range" id="img2vid-steps" min="10" max="50" value="25" 
+                                    class="w-full" oninput="document.getElementById('img2vid-steps-value').textContent = this.value">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    FPS: <span id="img2vid-fps-value">7</span>
+                                </label>
+                                <input type="range" id="img2vid-fps" min="5" max="30" value="7" 
+                                    class="w-full" oninput="document.getElementById('img2vid-fps-value').textContent = this.value">
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Motion Intensity: <span id="img2vid-motion-value">127</span>
+                                </label>
+                                <input type="range" id="img2vid-motion" min="1" max="255" value="127" 
+                                    class="w-full" oninput="document.getElementById('img2vid-motion-value').textContent = this.value">
+                                <p class="text-xs text-gray-500">Higher = more motion</p>
+                            </div>
+                            
+                            <button onclick="generateVideo()" id="video-btn" disabled
+                                class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 px-6 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                🎬 Generate Video
+                            </button>
+                            
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                                ⚠️ Video generation takes 1-2 minutes and uses significant VRAM
+                            </div>
+                        </div>
+                        
+                        <!-- Preview Panel -->
+                        <div>
+                            <div class="bg-gray-50 rounded-lg border-2 border-gray-200 preview-container" id="img2vid-preview">
+                                <div class="text-center text-gray-400">
+                                    <svg class="w-24 h-24 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                                    </svg>
+                                    <p>Upload an image to animate</p>
+                                </div>
+                            </div>
+                            <div id="img2vid-info" class="mt-4 text-sm text-gray-600"></div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
 
@@ -285,6 +538,9 @@
             generationTimes: [],
             modelCounts: {}
         };
+        
+        let uploadedImageBase64 = null;
+        let uploadedVideoImageBase64 = null;
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', function() {
@@ -310,7 +566,11 @@
             
             // Show selected tab
             document.getElementById(tabName + '-tab').classList.add('active');
-            event.target.classList.add('active');
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                if (btn.textContent.toLowerCase().includes(tabName)) {
+                    btn.classList.add('active');
+                }
+            });
         }
 
         // Refresh system status
@@ -440,6 +700,231 @@
             }
         }
 
+        // ==================== PLAYGROUND FUNCTIONS ====================
+
+        // Text-to-Image Generation
+        async function generateImage() {
+            const preview = document.getElementById('txt2img-preview');
+            const info = document.getElementById('txt2img-info');
+            
+            // Get form values
+            const model = document.getElementById('txt2img-model').value;
+            const prompt = document.getElementById('txt2img-prompt').value;
+            const negativePrompt = document.getElementById('txt2img-negative').value;
+            const width = parseInt(document.getElementById('txt2img-width').value);
+            const height = parseInt(document.getElementById('txt2img-height').value);
+            const steps = parseInt(document.getElementById('txt2img-steps').value);
+            const guidance = parseFloat(document.getElementById('txt2img-guidance').value);
+            const seed = document.getElementById('txt2img-seed').value;
+            
+            if (!prompt) {
+                showNotification('Please enter a prompt', 'error');
+                return;
+            }
+            
+            // Show loading
+            preview.innerHTML = '<div class="loading-spinner mx-auto"></div><p class="text-center mt-4 text-gray-600">Generating image...</p>';
+            info.innerHTML = '<p class="text-blue-600">⏳ Generation in progress...</p>';
+            
+            try {
+                const payload = {
+                    prompt: prompt,
+                    negative_prompt: negativePrompt,
+                    width: width,
+                    height: height,
+                    num_inference_steps: steps,
+                    guidance_scale: guidance
+                };
+                
+                if (seed) {
+                    payload.seed = parseInt(seed);
+                }
+                
+                const response = await fetch(`/api/generate/${model}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Generation failed');
+                }
+                
+                const data = await response.json();
+                
+                // Display image
+                preview.innerHTML = `
+                    <img src="data:image/png;base64,${data.image_base64}" 
+                         class="max-w-full h-auto rounded-lg" alt="Generated image">
+                `;
+                
+                info.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <span>✅ Generated in ${data.generation_time}s</span>
+                        <a href="data:image/png;base64,${data.image_base64}" download="generated-${model}.png" 
+                           class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition">
+                            Download
+                        </a>
+                    </div>
+                `;
+                
+                showNotification('Image generated successfully!', 'success');
+                refreshResults();
+                refreshMetrics();
+                
+            } catch (error) {
+                preview.innerHTML = '<div class="text-center text-red-500"><p>❌ Generation failed</p></div>';
+                info.innerHTML = `<p class="text-red-600">${error.message}</p>`;
+                showNotification('Generation failed: ' + error.message, 'error');
+            }
+        }
+
+        // Image-to-Text Captioning
+        function previewImageToText(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    uploadedImageBase64 = e.target.result;
+                    document.getElementById('img2txt-preview').innerHTML = `
+                        <img src="${e.target.result}" class="max-w-full h-auto rounded-lg" alt="Uploaded image">
+                    `;
+                    document.getElementById('caption-btn').disabled = false;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function captionImage() {
+            if (!uploadedImageBase64) {
+                showNotification('Please upload an image first', 'error');
+                return;
+            }
+            
+            const model = document.getElementById('img2txt-model').value;
+            const prompt = document.getElementById('img2txt-prompt').value;
+            const resultDiv = document.getElementById('img2txt-result');
+            
+            resultDiv.innerHTML = '<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-2">Generating caption...</p></div>';
+            
+            try {
+                const endpoint = model === 'llava' ? '/api/caption/llava' : '/api/caption/blip';
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: uploadedImageBase64,
+                        prompt: prompt,
+                        max_length: 200
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Caption generation failed');
+                }
+                
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <div class="space-y-2">
+                        <p class="font-medium text-gray-800">Caption:</p>
+                        <p class="text-gray-700">${data.caption}</p>
+                        <p class="text-sm text-gray-500">Generated in ${data.generation_time}s using ${data.model}</p>
+                    </div>
+                `;
+                
+                showNotification('Caption generated successfully!', 'success');
+                refreshMetrics();
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="text-red-600 text-center">❌ ${error.message}</p>`;
+                showNotification('Caption failed: ' + error.message, 'error');
+            }
+        }
+
+        // Image-to-Video Generation
+        function previewImageToVideo(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    uploadedVideoImageBase64 = e.target.result;
+                    document.getElementById('img2vid-preview').innerHTML = `
+                        <img src="${e.target.result}" class="max-w-full h-auto rounded-lg" alt="Uploaded image">
+                    `;
+                    document.getElementById('video-btn').disabled = false;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function generateVideo() {
+            if (!uploadedVideoImageBase64) {
+                showNotification('Please upload an image first', 'error');
+                return;
+            }
+            
+            const preview = document.getElementById('img2vid-preview');
+            const info = document.getElementById('img2vid-info');
+            
+            const numFrames = parseInt(document.getElementById('img2vid-frames').value);
+            const steps = parseInt(document.getElementById('img2vid-steps').value);
+            const fps = parseInt(document.getElementById('img2vid-fps').value);
+            const motionBucket = parseInt(document.getElementById('img2vid-motion').value);
+            
+            // Show loading
+            preview.innerHTML = '<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4 text-gray-600">Generating video... This may take 1-2 minutes</p></div>';
+            info.innerHTML = '<p class="text-blue-600">⏳ Video generation in progress... Please wait...</p>';
+            
+            try {
+                const response = await fetch('/api/video/svd', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image: uploadedVideoImageBase64,
+                        num_frames: numFrames,
+                        num_inference_steps: steps,
+                        fps: fps,
+                        motion_bucket_id: motionBucket
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Video generation failed');
+                }
+                
+                const data = await response.json();
+                
+                // Display success message with download
+                preview.innerHTML = `
+                    <div class="text-center">
+                        <svg class="w-24 h-24 mx-auto mb-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <p class="text-gray-700 mb-4">✅ Video generated successfully!</p>
+                        <a href="${data.video_path.replace('/app/outputs/', '/api/download/')}" download 
+                           class="inline-block bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition">
+                            Download Video
+                        </a>
+                    </div>
+                `;
+                
+                info.innerHTML = `
+                    <div class="text-sm">
+                        <p>✅ Generated in ${data.generation_time}s</p>
+                        <p>Frames: ${data.num_frames} at ${data.fps} FPS</p>
+                    </div>
+                `;
+                
+                showNotification('Video generated successfully!', 'success');
+                refreshResults();
+                refreshMetrics();
+                
+            } catch (error) {
+                preview.innerHTML = '<div class="text-center text-red-500"><p>❌ Video generation failed</p></div>';
+                info.innerHTML = `<p class="text-red-600">${error.message}</p>`;
+                showNotification('Video generation failed: ' + error.message, 'error');
+            }
+        }
+
         // Results
         async function refreshResults() {
             try {
@@ -449,7 +934,7 @@
                 const container = document.getElementById('results-gallery');
                 
                 if (data.results.length === 0) {
-                    container.innerHTML = '<div class="col-span-full text-center py-12 text-gray-500">No results yet. Generate some images to see them here!</div>';
+                    container.innerHTML = '<div class="col-span-full text-center py-12 text-gray-500">No results yet. Use the Playground to generate some!</div>';
                     return;
                 }
                 
@@ -625,31 +1110,6 @@
             })
             .catch(error => {
                 showNotification('Error saving settings', 'error');
-            });
-        }
-
-        // Test generation
-        function testGeneration() {
-            showNotification('Starting test generation...', 'info');
-            
-            fetch('/api/generate/sdxl', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt: 'a beautiful sunset over mountains',
-                    width: 512,
-                    height: 512,
-                    num_inference_steps: 20
-                })
-            })
-            .then(r => r.json())
-            .then(data => {
-                showNotification(`Test complete! Generated in ${data.generation_time}s`, 'success');
-                refreshResults();
-                refreshMetrics();
-            })
-            .catch(error => {
-                showNotification('Test failed: ' + error.message, 'error');
             });
         }
 
