@@ -1,5 +1,5 @@
 # Optimized Dockerfile for RTX 5070 Ti / CUDA 12.4.1 / PyTorch 2.4.x
-# Combines your original logic with a stable base image
+# Combines your original logic with a stable base image and fixes the heredoc syntax
 
 FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
 
@@ -42,31 +42,31 @@ WORKDIR /app
 RUN pip3 install --upgrade torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu124
 
-# Optional: Install additional ML utilities
-# RUN pip3 install --no-cache-dir numpy scipy pandas tqdm matplotlib transformers accelerate datasets lightning
-
 # Verify PyTorch + GPU access
-RUN python3 << 'EOF'\n\
-import torch\n\
-print('='*60)\n\
-print(f'PyTorch Version: {torch.__version__}')\n\
-print(f'CUDA Available: {torch.cuda.is_available()}')\n\
-print(f'CUDA Runtime: {getattr(torch.version, \"cuda\", \"N/A\")}')\n\
-print('='*60)\n\
-if torch.cuda.is_available():\n\
-    print('\\n🔍 GPU Detection Test:')\n\
-    print(f'  GPU Name: {torch.cuda.get_device_name(0)}')\n\
-    cap = torch.cuda.get_device_capability(0)\n\
-    print(f'  Compute Capability: {cap[0]}.{cap[1]}')\n\
-    if cap[0] == 12 and cap[1] == 0:\n\
-        print('  ✅ Blackwell (sm_120) detected!')\n\
-    print(f'  Total VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB')\n\
-    print('\\n🧪 Tensor Operations Test:')\n\
-    x = torch.randn(1000, 1000, device='cuda')\n\
-    y = torch.randn(1000, 1000, device='cuda')\n\
-    z = torch.matmul(x, y)\n\
-    print(f'  Tensor matmul result: {z.mean().item():.6f}')\n\
-print('\\n✅ PyTorch GPU test completed successfully!')\n\
+RUN python3 << 'EOF'
+import torch
+print('='*60)
+print(f'PyTorch Version: {torch.__version__}')
+print(f'CUDA Available: {torch.cuda.is_available()}')
+print(f'CUDA Runtime: {getattr(torch.version, "cuda", "N/A")}')
+print('='*60)
+
+if torch.cuda.is_available():
+    print('\n🔍 GPU Detection Test:')
+    print(f'  GPU Name: {torch.cuda.get_device_name(0)}')
+    cap = torch.cuda.get_device_capability(0)
+    print(f'  Compute Capability: {cap[0]}.{cap[1]}')
+    if cap[0] == 12 and cap[1] == 0:
+        print('  ✅ Blackwell (sm_120) detected!')
+    print(f'  Total VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB')
+
+    print('\n🧪 Tensor Operations Test:')
+    x = torch.randn(1000, 1000, device='cuda')
+    y = torch.randn(1000, 1000, device='cuda')
+    z = torch.matmul(x, y)
+    print(f'  Tensor matmul result: {z.mean().item():.6f}')
+
+print('\n✅ PyTorch GPU test completed successfully!')
 EOF
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
