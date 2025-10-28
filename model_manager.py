@@ -9,6 +9,9 @@ from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusion3Pipeline,
     StableVideoDiffusionPipeline,
+    StableDiffusionPipeline,
+    ControlNetModel,
+    StableDiffusionXLControlNetPipeline,
     DPMSolverMultistepScheduler
 )
 
@@ -24,7 +27,8 @@ from transformers import (
     AutoProcessor,
     AutoModelForVision2Seq,
     Blip2Processor,
-    Blip2ForConditionalGeneration
+    Blip2ForConditionalGeneration,
+    Qwen2VLForConditionalGeneration
 )
 
 
@@ -36,37 +40,73 @@ class ModelManager:
             "name": "Flux.1-dev",
             "type": "text-to-image",
             "model_id": "black-forest-labs/FLUX.1-dev",
-            "vram_gb": 12
+            "vram_gb": 12,
+            "category": "General"
         },
         "sdxl": {
             "name": "Stable Diffusion XL",
             "type": "text-to-image",
             "model_id": "stabilityai/stable-diffusion-xl-base-1.0",
-            "vram_gb": 7
+            "vram_gb": 7,
+            "category": "General"
         },
         "sd3": {
             "name": "Stable Diffusion 3",
             "type": "text-to-image",
             "model_id": "stabilityai/stable-diffusion-3-medium-diffusers",
-            "vram_gb": 10
+            "vram_gb": 10,
+            "category": "General"
+        },
+        "pony": {
+            "name": "Pony Diffusion V7",
+            "type": "text-to-image",
+            "model_id": "purplesmartai/pony-v7-base",
+            "vram_gb": 5,
+            "category": "Anime/Cartoon"
         },
         "llava": {
             "name": "LLaVA 1.6",
             "type": "image-to-text",
             "model_id": "llava-hf/llava-1.5-7b-hf",
-            "vram_gb": 13
+            "vram_gb": 13,
+            "category": "Vision"
         },
         "blip2": {
             "name": "BLIP-2",
             "type": "image-to-text",
             "model_id": "Salesforce/blip2-opt-2.7b",
-            "vram_gb": 6
+            "vram_gb": 6,
+            "category": "Vision"
+        },
+        "qwen": {
+            "name": "Qwen-Image",
+            "type": "image-to-text",
+            "model_id": "Qwen/Qwen2-VL-2B-Instruct",
+            "vram_gb": 8,
+            "category": "Vision"
         },
         "svd": {
             "name": "Stable Video Diffusion",
             "type": "video-generation",
             "model_id": "stabilityai/stable-video-diffusion-img2vid-xt",
-            "vram_gb": 8
+            "vram_gb": 8,
+            "category": "Video"
+        },
+        "mistoline": {
+            "name": "MistoLine",
+            "type": "controlnet",
+            "model_id": "TheMistoAI/MistoLine",
+            "base_model": "sdxl",
+            "vram_gb": 8,
+            "category": "ControlNet"
+        },
+        "controlnet-union": {
+            "name": "ControlNet Union SDXL",
+            "type": "controlnet",
+            "model_id": "xinsir/controlnet-union-sdxl-1.0",
+            "base_model": "sdxl",
+            "vram_gb": 9,
+            "category": "ControlNet"
         }
     }
     
@@ -137,6 +177,14 @@ class ModelManager:
                 torch_dtype=torch.float16,
                 use_safetensors=True
             )
+        elif model_key == "pony":
+            # Pony is SD 1.5 based
+            pipe = StableDiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+                safety_checker=None
+            )
+            pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         else:
             raise ValueError(f"Unknown text-to-image model: {model_key}")
         
@@ -177,6 +225,13 @@ class ModelManager:
                 torch_dtype=torch.float16,
                 device_map="auto"
             )
+        elif model_key == "qwen":
+            processor = AutoProcessor.from_pretrained(model_id)
+            model = Qwen2VLForConditionalGeneration.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
         else:
             raise ValueError(f"Unknown image-to-text model: {model_key}")
         
@@ -205,13 +260,50 @@ class ModelManager:
         
         return pipe
     
+    def _load_controlnet_model(self, model_key: str):
+        """Load a ControlNet model with SDXL pipeline"""
+        model_info = self.AVAILABLE_MODELS[model_key]
+        model_id = model_info["model_id"]
+        
+        print(f"Loading {model_info['name']} from {model_id}...")
+        
+        # Load ControlNet
+        controlnet = ControlNetModel.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16
+        )
+        
+        # Load base SDXL pipeline with ControlNet
+        base_model_id = "stabilityai/stable-diffusion-xl-base-1.0"
+        pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+            base_model_id,
+            controlnet=controlnet,
+            torch_dtype=torch.float16,
+            variant="fp16"
+        )
+        
+        pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+        pipe.enable_model_cpu_offload()
+        pipe.enable_vae_slicing()
+        
+        try:
+            pipe.enable_xformers_memory_efficient_attention()
+            print("  xformers enabled for ControlNet")
+        except:
+            print("  xformers not available")
+        
+        pipe = pipe.to("cuda")
+        print(f"  {model_info['name']} loaded successfully")
+        
+        return pipe
+    
     def load_model(self, model_key: str, model_type: str):
         """
         Load a model with lazy loading
         
         Args:
             model_key: Key of the model to load
-            model_type: Type of model (text-to-image, image-to-text, video-generation)
+            model_type: Type of model (text-to-image, image-to-text, video-generation, controlnet)
             
         Returns:
             Loaded model or (model, processor) tuple
@@ -228,13 +320,15 @@ class ModelManager:
         # Clean up old models if needed
         self._cleanup_old_models()
         
-        # Load the model
+        # Load the model based on type
         if model_type == "text-to-image":
             model = self._load_text_to_image_model(model_key)
         elif model_type == "image-to-text":
             model = self._load_image_to_text_model(model_key)
         elif model_type == "video-generation":
             model = self._load_video_generation_model(model_key)
+        elif model_type == "controlnet":
+            model = self._load_controlnet_model(model_key)
         else:
             raise ValueError(f"Unknown model type: {model_type}")
         
