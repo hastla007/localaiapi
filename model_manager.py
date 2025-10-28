@@ -242,7 +242,9 @@ class ModelManager:
 
         if self.cuda_compatible:
             pipe.enable_model_cpu_offload()
-            pipe.enable_vae_slicing()
+            # Only enable VAE slicing for pipelines that support it
+            if hasattr(pipe, "enable_vae_slicing"):
+                pipe.enable_vae_slicing()
             try:
                 pipe.enable_xformers_memory_efficient_attention()
                 print("  xformers enabled")
