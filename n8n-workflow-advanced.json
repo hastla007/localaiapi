@@ -1,0 +1,204 @@
+{
+  "name": "Advanced AI Pipeline - Generate, Caption & Video",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-pipeline",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-start",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/generate/flux",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "prompt",
+              "value": "={{ $json.body.prompt }}"
+            },
+            {
+              "name": "width",
+              "value": 1024
+            },
+            {
+              "name": "height",
+              "value": 1024
+            },
+            {
+              "name": "num_inference_steps",
+              "value": 30
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "step1-generate",
+      "name": "Step 1: Generate Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [420, 400],
+      "notes": "Generate image from text prompt using Flux"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/caption/llava",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "image",
+              "value": "={{ $json.image_base64 }}"
+            },
+            {
+              "name": "prompt",
+              "value": "Describe this image in detail, including style, composition, and mood."
+            },
+            {
+              "name": "max_length",
+              "value": 200
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "step2-caption",
+      "name": "Step 2: Caption Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [640, 400],
+      "notes": "Generate detailed caption using LLaVA"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8000/api/video/svd",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "image",
+              "value": "={{ $('Step 1: Generate Image').item.json.image_base64 }}"
+            },
+            {
+              "name": "num_frames",
+              "value": 14
+            },
+            {
+              "name": "num_inference_steps",
+              "value": 25
+            },
+            {
+              "name": "fps",
+              "value": 7
+            }
+          ]
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "step3-video",
+      "name": "Step 3: Generate Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [860, 400],
+      "notes": "Create video from generated image"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine all results\nconst imageData = $('Step 1: Generate Image').item.json;\nconst captionData = $('Step 2: Caption Image').item.json;\nconst videoData = $('Step 3: Generate Video').item.json;\n\nreturn {\n  success: true,\n  workflow: 'AI Pipeline Complete',\n  original_prompt: $json.body.prompt,\n  results: {\n    image: {\n      path: imageData.image_path,\n      base64: imageData.image_base64,\n      generation_time: imageData.generation_time\n    },\n    caption: {\n      text: captionData.caption,\n      generation_time: captionData.generation_time\n    },\n    video: {\n      path: videoData.video_path,\n      num_frames: videoData.num_frames,\n      fps: videoData.fps,\n      generation_time: videoData.generation_time\n    }\n  },\n  total_time: imageData.generation_time + captionData.generation_time + videoData.generation_time\n};"
+      },
+      "id": "combine-results",
+      "name": "Combine Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1080, 400]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "respond-final",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1300, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Step 1: Generate Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 1: Generate Image": {
+      "main": [
+        [
+          {
+            "node": "Step 2: Caption Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 2: Caption Image": {
+      "main": [
+        [
+          {
+            "node": "Step 3: Generate Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step 3: Generate Video": {
+      "main": [
+        [
+          {
+            "node": "Combine Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Results": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

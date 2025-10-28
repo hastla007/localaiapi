@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  ai-api:
+    build: .
+    container_name: ai-api-local
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./outputs:/app/outputs
+      - ./cache:/app/cache
+    environment:
+      - HF_HOME=/app/cache
+      - TRANSFORMERS_CACHE=/app/cache
+      - CUDA_VISIBLE_DEVICES=0
+      - MAX_LOADED_MODELS=2
+      - MODEL_TIMEOUT=300
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
