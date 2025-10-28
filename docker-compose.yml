@@ -1,6 +1,31 @@
 version: '3.8'
 
 services:
+  comfyui:
+    image: yanwk/comfyui-boot:latest
+    container_name: comfyui-wan21
+    ports:
+      - "8188:8188"
+    volumes:
+      - ./comfyui/models:/root/ComfyUI/models
+      - ./comfyui/output:/root/ComfyUI/output
+      - ./comfyui/custom_nodes:/root/ComfyUI/custom_nodes
+      - ./comfyui/workflows:/root/ComfyUI/user/default/workflows
+      - ./comfyui/input:/root/ComfyUI/input
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=0
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - CLI_ARGS=--listen 0.0.0.0 --port 8188
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    shm_size: '16gb'
+
   ai-api:
     build:
       context: .
@@ -13,6 +38,8 @@ services:
       - ./outputs:/app/outputs
       - ./cache:/app/cache
       - ./templates:/app/templates
+      - ./comfyui_workflows:/app/comfyui_workflows
+      - ./comfyui_client.py:/app/comfyui_client.py
     environment:
       - HF_HOME=/app/cache
       - TRANSFORMERS_CACHE=/app/cache
@@ -22,8 +49,10 @@ services:
       - HF_TOKEN=here_comes_api_key  # ← ADD THIS LINE
       # Blackwell (RTX 5070 Ti) optimizations
       - TORCH_CUDA_ARCH_LIST=8.0;8.6;8.9;9.0;12.0
-      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
+      - CUDA_LAUNCH_BLOCKING=0
       - TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+      - COMFYUI_URL=http://comfyui:8188
     deploy:
       resources:
         reservations:
@@ -32,4 +61,6 @@ services:
               count: all
               capabilities: [gpu]
     restart: unless-stopped
-    shm_size: '8gb'  # Important for PyTorch with large models
+    shm_size: '16gb'  # Increase shared memory for larger models
+    depends_on:
+      - comfyui

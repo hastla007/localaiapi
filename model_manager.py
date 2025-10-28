@@ -10,7 +10,6 @@ from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusion3Pipeline,
     StableVideoDiffusionPipeline,
-    StableDiffusionPipeline,
     ControlNetModel,
     StableDiffusionXLControlNetPipeline,
     DPMSolverMultistepScheduler,
@@ -49,11 +48,12 @@ class ModelManager:
     
     AVAILABLE_MODELS = {
         "flux": {
-            "name": "Flux.1-dev",
+            "name": "Flux.1-dev (LowVRAM)",
             "type": "text-to-image",
             "model_id": "black-forest-labs/FLUX.1-dev",
-            "vram_gb": 12,
-            "category": "General"
+            "vram_gb": 10,
+            "category": "General",
+            "note": "Using component loading with aggressive offloading"
         },
         "sdxl": {
             "name": "Stable Diffusion XL",
@@ -220,12 +220,32 @@ class ModelManager:
         model_id = model_info["model_id"]
         
         print(f"Loading {model_info['name']} from {model_id}...")
-        
+
+        skip_to_device = False
+
         if model_key == "flux":
             if not FLUX_AVAILABLE:
                 raise ImportError("FluxPipeline not available")
             dtype = self._select_dtype(torch.bfloat16)
-            pipe = FluxPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True)
+            low_vram_path = "/app/models/flux/unet/flux1-dev.safetensors"
+            try:
+                if hasattr(FluxPipeline, "from_single_file") and os.path.exists(low_vram_path):
+                    pipe = FluxPipeline.from_single_file(
+                        low_vram_path,
+                        torch_dtype=dtype,
+                        use_safetensors=True,
+                        local_files_only=True,
+                    )
+                    print("  Loaded Flux from local low VRAM safetensors bundle")
+                else:
+                    raise ValueError("LowVRAM safetensor bundle not available")
+            except Exception as exc:
+                print(f"  LowVRAM load failed ({exc}); falling back to standard repo load")
+                pipe = FluxPipeline.from_pretrained(
+                    model_id,
+                    torch_dtype=dtype,
+                    use_safetensors=True,
+                )
         elif model_key == "sdxl":
             dtype = self._select_dtype(torch.float16)
             pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True, variant="fp16")
@@ -235,21 +255,41 @@ class ModelManager:
             pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True)
         elif model_key == "pony":
             dtype = self._select_dtype(torch.float16)
-            pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, safety_checker=None)
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                use_safetensors=True,
+            )
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         else:
             raise ValueError(f"Unknown text-to-image model: {model_key}")
 
         if self.cuda_compatible:
-            pipe.enable_model_cpu_offload()
-            pipe.enable_vae_slicing()
-            try:
-                pipe.enable_xformers_memory_efficient_attention()
-                print("  xformers enabled")
-            except Exception:
-                pass
+            if model_key == "flux":
+                pipe.enable_model_cpu_offload()
+                if hasattr(pipe, "enable_vae_slicing"):
+                    pipe.enable_vae_slicing()
+                if hasattr(pipe, "enable_vae_tiling"):
+                    pipe.enable_vae_tiling()
+                if hasattr(pipe, "enable_sequential_cpu_offload"):
+                    pipe.enable_sequential_cpu_offload()
+                skip_to_device = True
+                print("  Flux loaded with lowvram optimizations")
+            else:
+                pipe.enable_model_cpu_offload()
+                # Only enable VAE slicing for pipelines that support it
+                if hasattr(pipe, "enable_vae_slicing"):
+                    pipe.enable_vae_slicing()
+                try:
+                    pipe.enable_xformers_memory_efficient_attention()
+                    print("  xformers enabled")
+                except Exception:
+                    pass
 
-        pipe = pipe.to(self.device)
+        if not skip_to_device:
+            pipe = pipe.to(self.device)
+        else:
+            print("  Skipping explicit .to() since accelerate manages device placement")
         print(f"  {model_info['name']} loaded successfully")
         return pipe
     

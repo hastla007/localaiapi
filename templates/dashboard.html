@@ -83,7 +83,7 @@
         
         <!-- Overview Tab -->
         <div id="overview-tab" class="tab-content active">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
                 <!-- System Status Card -->
                 <div class="bg-white rounded-lg shadow-md p-6">
                     <h3 class="text-lg font-semibold text-gray-700 mb-4">System Status</h3>
@@ -135,6 +135,24 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">ComfyUI Status</h3>
+                    <div id="comfyui-status" class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">ComfyUI:</span>
+                            <span id="comfyui-status-text" class="font-semibold text-gray-400">Checking...</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">WAN 2.1:</span>
+                            <span id="wan21-status-text" class="font-semibold text-gray-400">Checking...</span>
+                        </div>
+                        <button onclick="checkComfyUIStatus()"
+                                class="w-full bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-2 px-4 rounded transition mt-2">
+                            🔄 Check Status
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <!-- Loaded Models -->
@@ -173,6 +191,7 @@
                                     <option value="flux">Flux.1-dev (Best Quality)</option>
                                     <option value="sdxl" selected>SDXL (Faster)</option>
                                     <option value="sd3">Stable Diffusion 3</option>
+                                    <option value="pony">Pony Diffusion V7 (Stylized)</option>
                                 </select>
                             </div>
                             
@@ -253,6 +272,102 @@
                     </div>
                 </div>
 
+                <!-- Text-to-Video (AnimateDiff Lightning) -->
+                <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                        🎞️ Text-to-Video (AnimateDiff Lightning)
+                    </h3>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Input Panel -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Prompt</label>
+                                <textarea id="txt2vid-prompt" rows="3"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="cinematic shot of a futuristic city, dramatic lighting"></textarea>
+                                <p class="text-xs text-gray-500 mt-1">Use short, descriptive prompts for best results</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Negative Prompt (optional)</label>
+                                <textarea id="txt2vid-negative" rows="2"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="low quality, blurry, distorted"></textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Number of Frames: <span id="txt2vid-frames-value">16</span>
+                                </label>
+                                <input type="range" id="txt2vid-frames" min="8" max="32" value="16"
+                                    class="w-full" oninput="document.getElementById('txt2vid-frames-value').textContent = this.value">
+                                <p class="text-xs text-gray-500 mt-1">More frames = longer clips (Lightning defaults: 16-24)</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Steps: <span id="txt2vid-steps-value">8</span>
+                                </label>
+                                <input type="range" id="txt2vid-steps" min="4" max="20" value="8"
+                                    class="w-full" oninput="document.getElementById('txt2vid-steps-value').textContent = this.value">
+                                <p class="text-xs text-gray-500 mt-1">Lightning works best with 4-8 steps</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Guidance Scale: <span id="txt2vid-guidance-value">1.5</span>
+                                </label>
+                                <input type="range" id="txt2vid-guidance" min="1" max="3" step="0.1" value="1.5"
+                                    class="w-full" oninput="document.getElementById('txt2vid-guidance-value').textContent = this.value">
+                                <p class="text-xs text-gray-500 mt-1">Lower guidance keeps motion smooth</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    FPS: <span id="txt2vid-fps-value">8</span>
+                                </label>
+                                <input type="range" id="txt2vid-fps" min="5" max="30" value="8"
+                                    class="w-full" oninput="document.getElementById('txt2vid-fps-value').textContent = this.value">
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Resolution</label>
+                                    <select id="txt2vid-resolution" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                        <option value="512">512 x 512</option>
+                                        <option value="768">768 x 768</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Seed (optional)</label>
+                                    <input type="number" id="txt2vid-seed"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                        placeholder="Leave empty for random seed">
+                                </div>
+                            </div>
+
+                            <button onclick="generateTextVideo()"
+                                class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 px-6 rounded-lg transition">
+                                🎞️ Generate Video
+                            </button>
+                        </div>
+
+                        <!-- Preview Panel -->
+                        <div>
+                            <div class="bg-gray-50 rounded-lg border-2 border-gray-200 preview-container" id="txt2vid-preview">
+                                <div class="text-center text-gray-400">
+                                    <svg class="w-24 h-24 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8m-9 4v7"></path>
+                                    </svg>
+                                    <p>Your generated video preview will appear here</p>
+                                </div>
+                            </div>
+                            <div id="txt2vid-info" class="mt-4 text-sm text-gray-600"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Image-to-Text -->
                 <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
                     <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
@@ -267,6 +382,7 @@
                                 <select id="img2txt-model" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
                                     <option value="llava">LLaVA 1.6 (Detailed)</option>
                                     <option value="blip">BLIP-2 (Faster)</option>
+                                    <option value="qwen">Qwen2-VL 2B (Multimodal)</option>
                                 </select>
                             </div>
                             
@@ -278,10 +394,11 @@
                             </div>
                             
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-2">Prompt (for LLaVA)</label>
-                                <textarea id="img2txt-prompt" rows="3" 
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Prompt (optional)</label>
+                                <textarea id="img2txt-prompt" rows="3"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                     placeholder="Describe this image in detail.">Describe this image in detail.</textarea>
+                                <p class="text-xs text-gray-500 mt-1">Helpful for LLaVA and Qwen. BLIP-2 ignores prompts.</p>
                             </div>
                             
                             <button onclick="captionImage()" id="caption-btn" disabled
@@ -311,28 +428,50 @@
                 <!-- Image-to-Video -->
                 <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
                     <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
-                        🎬 Image-to-Video (SVD)
+                        🎬 Image-to-Video
                     </h3>
-                    
+
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <!-- Input Panel -->
                         <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Model</label>
+                                <select id="img2vid-model" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" onchange="updateVideoModelParams()">
+                                    <option value="svd">Stable Video Diffusion (Standard)</option>
+                                    <option value="wan21" id="wan21-option" disabled>WAN 2.1 + LightX2V (ComfyUI Required)</option>
+                                </select>
+                                <p class="text-xs text-gray-500 mt-1" id="model-description">
+                                    Standard image-to-video with smooth motion
+                                </p>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Upload Image</label>
                                 <input type="file" id="img2vid-upload" accept="image/*" 
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg"
                                     onchange="previewImageToVideo(this)">
-                                <p class="text-xs text-gray-500 mt-1">Will be resized to 1024x576 for optimal results</p>
+                                <p class="text-xs text-gray-500 mt-1" id="img2vid-resize-info">
+                                    Will be resized to 1024x576 for optimal results
+                                </p>
                             </div>
-                            
+
+                            <div id="img2vid-prompt-container" style="display: none;">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Prompt (Optional)</label>
+                                <textarea id="img2vid-prompt" rows="2" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="smooth camera movement, high quality"></textarea>
+                                <p class="text-xs text-gray-500 mt-1">Guidance for video generation</p>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Number of Frames: <span id="img2vid-frames-value">14</span>
                                 </label>
                                 <input type="range" id="img2vid-frames" min="8" max="25" value="14" 
                                     class="w-full" oninput="document.getElementById('img2vid-frames-value').textContent = this.value">
+                                <p class="text-xs text-gray-500 mt-1" id="frames-hint">~2 seconds at 7 FPS</p>
                             </div>
-                            
+
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Steps: <span id="img2vid-steps-value">25</span>
@@ -340,7 +479,16 @@
                                 <input type="range" id="img2vid-steps" min="10" max="50" value="25" 
                                     class="w-full" oninput="document.getElementById('img2vid-steps-value').textContent = this.value">
                             </div>
-                            
+
+                            <div id="guidance-container">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Guidance Scale: <span id="img2vid-guidance-value">1.5</span>
+                                </label>
+                                <input type="range" id="img2vid-guidance" min="1.0" max="3.5" step="0.1" value="1.5" 
+                                    class="w-full" oninput="document.getElementById('img2vid-guidance-value').textContent = this.value">
+                                <p class="text-xs text-gray-500 mt-1">How closely to follow the prompt</p>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     FPS: <span id="img2vid-fps-value">7</span>
@@ -348,26 +496,26 @@
                                 <input type="range" id="img2vid-fps" min="5" max="30" value="7" 
                                     class="w-full" oninput="document.getElementById('img2vid-fps-value').textContent = this.value">
                             </div>
-                            
-                            <div>
+
+                            <div id="motion-container">
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Motion Intensity: <span id="img2vid-motion-value">127</span>
                                 </label>
                                 <input type="range" id="img2vid-motion" min="1" max="255" value="127" 
                                     class="w-full" oninput="document.getElementById('img2vid-motion-value').textContent = this.value">
-                                <p class="text-xs text-gray-500">Higher = more motion</p>
+                                <p class="text-xs text-gray-500">Higher = more motion (SVD only)</p>
                             </div>
-                            
+
                             <button onclick="generateVideo()" id="video-btn" disabled
                                 class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 px-6 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
                                 🎬 Generate Video
                             </button>
-                            
-                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800" id="video-warning">
                                 ⚠️ Video generation takes 1-2 minutes and uses significant VRAM
                             </div>
                         </div>
-                        
+
                         <!-- Preview Panel -->
                         <div>
                             <div class="bg-gray-50 rounded-lg border-2 border-gray-200 preview-container" id="img2vid-preview">
@@ -379,6 +527,117 @@
                                 </div>
                             </div>
                             <div id="img2vid-info" class="mt-4 text-sm text-gray-600"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ControlNet -->
+                <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                        🕹️ ControlNet (SDXL)
+                    </h3>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Input Panel -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Model</label>
+                                <select id="controlnet-model" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    <option value="mistoline">MistoLine (Line Art)</option>
+                                    <option value="union">ControlNet Union SDXL (Universal)</option>
+                                </select>
+                                <p class="text-xs text-gray-500 mt-1">Automatically loads SDXL ControlNet pipelines</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Upload Control Image</label>
+                                <input type="file" id="controlnet-upload" accept="image/*"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                    onchange="previewControlImage(this)">
+                                <p class="text-xs text-gray-500 mt-1">Use sketches or depth maps. Image is auto-resized to match width/height.</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Prompt</label>
+                                <textarea id="controlnet-prompt" rows="3"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="highly detailed illustration of a city skyline"></textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Negative Prompt (optional)</label>
+                                <textarea id="controlnet-negative" rows="2"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="low quality, distorted"></textarea>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Control Strength: <span id="controlnet-scale-value">1.0</span>
+                                </label>
+                                <input type="range" id="controlnet-scale" min="0.1" max="2" step="0.1" value="1.0"
+                                    class="w-full" oninput="document.getElementById('controlnet-scale-value').textContent = this.value">
+                                <p class="text-xs text-gray-500 mt-1">Lower values = more freedom. Higher values = follow control tightly.</p>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Steps: <span id="controlnet-steps-value">30</span>
+                                    </label>
+                                    <input type="range" id="controlnet-steps" min="10" max="60" value="30"
+                                        class="w-full" oninput="document.getElementById('controlnet-steps-value').textContent = this.value">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                                        Guidance: <span id="controlnet-guidance-value">7.5</span>
+                                    </label>
+                                    <input type="range" id="controlnet-guidance" min="1" max="15" step="0.5" value="7.5"
+                                        class="w-full" oninput="document.getElementById('controlnet-guidance-value').textContent = this.value">
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Width</label>
+                                    <select id="controlnet-width" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                        <option value="768">768</option>
+                                        <option value="1024" selected>1024</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Height</label>
+                                    <select id="controlnet-height" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                        <option value="768">768</option>
+                                        <option value="1024" selected>1024</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Seed (optional)</label>
+                                <input type="number" id="controlnet-seed"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                    placeholder="Leave empty for random seed">
+                            </div>
+
+                            <button onclick="generateControlImage()" id="controlnet-btn" disabled
+                                class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-3 px-6 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                🖼️ Generate Controlled Image
+                            </button>
+                        </div>
+
+                        <!-- Preview Panel -->
+                        <div>
+                            <div class="bg-gray-50 rounded-lg border-2 border-gray-200 preview-container" id="controlnet-preview">
+                                <div class="text-center text-gray-400">
+                                    <svg class="w-24 h-24 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v16h16M4 8h12"></path>
+                                    </svg>
+                                    <p>Upload a control image and prompt to begin</p>
+                                </div>
+                            </div>
+                            <div id="controlnet-info" class="mt-4 text-sm text-gray-600"></div>
                         </div>
                     </div>
                 </div>
@@ -541,6 +800,7 @@
         
         let uploadedImageBase64 = null;
         let uploadedVideoImageBase64 = null;
+        let uploadedControlImageBase64 = null;
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', function() {
@@ -549,9 +809,12 @@
             refreshLogs();
             loadSettings();
             initCharts();
-            
+            updateVideoModelParams();
+            checkComfyUIStatus();
+
             // Auto-refresh every 30 seconds
             setInterval(refreshStatus, 30000);
+            setInterval(checkComfyUIStatus, 60000);
         });
 
         // Tab switching
@@ -658,16 +921,27 @@
 
         function updateAvailableModels(availableModels) {
             const container = document.getElementById('available-models-list');
-            
+
             container.innerHTML = Object.entries(availableModels).map(([key, model]) => {
+                const statusMap = {
+                    'text-to-image': { label: 'Playground Ready', classes: 'bg-green-100 text-green-800' },
+                    'image-to-text': { label: 'Playground Ready', classes: 'bg-green-100 text-green-800' },
+                    'video-generation': { label: 'Playground Ready', classes: 'bg-green-100 text-green-800' },
+                    'controlnet': { label: 'Playground Ready', classes: 'bg-green-100 text-green-800' }
+                };
+                const status = statusMap[model.type] || { label: 'API Only', classes: 'bg-yellow-100 text-yellow-800' };
                 return `
                     <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
                         <div class="flex items-start justify-between mb-2">
                             <h4 class="font-semibold text-gray-800">${model.name}</h4>
                             <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">${model.type}</span>
                         </div>
-                        <p class="text-sm text-gray-600 mb-2">VRAM: ~${model.vram_gb} GB</p>
-                        <p class="text-xs text-gray-500">${model.model_id}</p>
+                        <p class="text-sm text-gray-600 mb-1">VRAM: ~${model.vram_gb} GB</p>
+                        <p class="text-xs text-gray-500 mb-2">${model.model_id}</p>
+                        <div class="flex items-center justify-between text-xs">
+                            <span class="text-gray-500">Category: ${model.category || 'General'}</span>
+                            <span class="px-2 py-1 rounded ${status.classes}">${status.label}</span>
+                        </div>
                     </div>
                 `;
             }).join('');
@@ -807,7 +1081,14 @@
             resultDiv.innerHTML = '<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-2">Generating caption...</p></div>';
             
             try {
-                const endpoint = model === 'llava' ? '/api/caption/llava' : '/api/caption/blip';
+                let endpoint;
+                if (model === 'llava') {
+                    endpoint = '/api/caption/llava';
+                } else if (model === 'blip') {
+                    endpoint = '/api/caption/blip';
+                } else {
+                    endpoint = '/api/caption/qwen';
+                }
                 const response = await fetch(endpoint, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -841,6 +1122,95 @@
             }
         }
 
+        // Text-to-Video Generation (AnimateDiff)
+        async function generateTextVideo() {
+            const preview = document.getElementById('txt2vid-preview');
+            const info = document.getElementById('txt2vid-info');
+
+            const prompt = document.getElementById('txt2vid-prompt').value.trim();
+            const negativePrompt = document.getElementById('txt2vid-negative').value;
+            const frames = parseInt(document.getElementById('txt2vid-frames').value);
+            const steps = parseInt(document.getElementById('txt2vid-steps').value);
+            const guidance = parseFloat(document.getElementById('txt2vid-guidance').value);
+            const fps = parseInt(document.getElementById('txt2vid-fps').value);
+            const resolution = parseInt(document.getElementById('txt2vid-resolution').value);
+            const seedValue = document.getElementById('txt2vid-seed').value;
+
+            if (!prompt) {
+                showNotification('Please enter a prompt', 'error');
+                return;
+            }
+
+            preview.innerHTML = '<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4 text-gray-600">Generating video with AnimateDiff Lightning...</p></div>';
+            info.innerHTML = '<p class="text-blue-600">⏳ Video generation in progress... Please wait...</p>';
+
+            const payload = {
+                prompt: prompt,
+                negative_prompt: negativePrompt,
+                num_frames: frames,
+                num_inference_steps: steps,
+                guidance_scale: guidance,
+                fps: fps,
+                width: resolution,
+                height: resolution
+            };
+
+            if (seedValue) {
+                payload.seed = parseInt(seedValue);
+            }
+
+            try {
+                const response = await fetch('/api/video/animatediff', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error('Video generation failed');
+                }
+
+                const data = await response.json();
+
+                preview.innerHTML = `
+                    <div class="text-center">
+                        <svg class="w-24 h-24 mx-auto mb-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <p class="text-gray-700 mb-4">✅ Video generated successfully with ${data.model}!</p>
+                        <a href="${data.video_path.replace('/app/outputs/', '/api/download/')}" download
+                           class="inline-block bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 transition">
+                            Download Video
+                        </a>
+                    </div>
+                `;
+
+                let infoText = `
+                    <div class="text-sm">
+                        <p>✅ Generated in ${data.generation_time}s</p>
+                        <p>Frames: ${data.num_frames} at ${data.fps} FPS</p>
+                        <p>Resolution: ${resolution}x${resolution}</p>
+                        <p>Steps Used: ${steps} • Guidance: ${guidance}</p>
+                `;
+
+                if (data.note) {
+                    infoText += `<p class="mt-2 text-gray-600">${data.note}</p>`;
+                }
+
+                infoText += `</div>`;
+                info.innerHTML = infoText;
+
+                showNotification('Video generated successfully!', 'success');
+                refreshResults();
+                refreshMetrics();
+
+            } catch (error) {
+                preview.innerHTML = '<div class="text-center text-red-500"><p>❌ Video generation failed</p></div>';
+                info.innerHTML = `<p class="text-red-600">${error.message}</p>`;
+                showNotification('Video generation failed: ' + error.message, 'error');
+            }
+        }
+
         // Image-to-Video Generation
         function previewImageToVideo(input) {
             if (input.files && input.files[0]) {
@@ -856,72 +1226,330 @@
             }
         }
 
+        // Update video model parameters based on selection
+        function updateVideoModelParams() {
+            const model = document.getElementById('img2vid-model').value;
+            const framesInput = document.getElementById('img2vid-frames');
+            const framesValue = document.getElementById('img2vid-frames-value');
+            const stepsInput = document.getElementById('img2vid-steps');
+            const stepsValue = document.getElementById('img2vid-steps-value');
+            const fpsInput = document.getElementById('img2vid-fps');
+            const fpsValue = document.getElementById('img2vid-fps-value');
+            const guidanceInput = document.getElementById('img2vid-guidance');
+            const guidanceValue = document.getElementById('img2vid-guidance-value');
+            const motionContainer = document.getElementById('motion-container');
+            const guidanceContainer = document.getElementById('guidance-container');
+            const promptContainer = document.getElementById('img2vid-prompt-container');
+            const resizeInfo = document.getElementById('img2vid-resize-info');
+            const modelDesc = document.getElementById('model-description');
+            const framesHint = document.getElementById('frames-hint');
+            const videoWarning = document.getElementById('video-warning');
+
+            if (model === 'wan21') {
+                // WAN 2.1 + LightX2V settings
+                modelDesc.textContent = 'Ultra-fast image-to-video (4-8 steps optimal)';
+                resizeInfo.textContent = 'Will be resized to 832x480 or 480x832 based on orientation';
+
+                // Show prompt and guidance for WAN 2.1
+                promptContainer.style.display = 'block';
+                guidanceContainer.style.display = 'block';
+                motionContainer.style.display = 'none';
+
+                // Update defaults for WAN 2.1
+                framesInput.min = 25;
+                framesInput.max = 81;
+                framesInput.value = 49;
+                framesValue.textContent = 49;
+                framesHint.textContent = '~2 seconds at 24 FPS';
+
+                stepsInput.min = 4;
+                stepsInput.max = 12;
+                stepsInput.value = 6;
+                stepsValue.textContent = 6;
+
+                fpsInput.min = 16;
+                fpsInput.max = 30;
+                fpsInput.value = 24;
+                fpsValue.textContent = 24;
+
+                guidanceInput.value = 1.5;
+                guidanceValue.textContent = 1.5;
+
+                videoWarning.innerHTML = '⚡ WAN 2.1 style: Ultra-fast generation (30-60 seconds)';
+                videoWarning.className = 'bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800';
+
+            } else {
+                // SVD settings
+                modelDesc.textContent = 'Standard image-to-video with smooth motion';
+                resizeInfo.textContent = 'Will be resized to 1024x576 for optimal results';
+
+                // Show motion, hide prompt and guidance for SVD
+                promptContainer.style.display = 'none';
+                guidanceContainer.style.display = 'none';
+                motionContainer.style.display = 'block';
+
+                // Reset to SVD defaults
+                framesInput.min = 8;
+                framesInput.max = 25;
+                framesInput.value = 14;
+                framesValue.textContent = 14;
+                framesHint.textContent = '~2 seconds at 7 FPS';
+
+                stepsInput.min = 10;
+                stepsInput.max = 50;
+                stepsInput.value = 25;
+                stepsValue.textContent = 25;
+
+                fpsInput.min = 5;
+                fpsInput.max = 30;
+                fpsInput.value = 7;
+                fpsValue.textContent = 7;
+
+                guidanceInput.value = 1.5;
+                guidanceValue.textContent = 1.5;
+
+                videoWarning.innerHTML = '⚠️ Video generation takes 1-2 minutes and uses significant VRAM';
+                videoWarning.className = 'bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800';
+            }
+        }
+
+        async function checkComfyUIStatus() {
+            try {
+                const response = await fetch('/api/comfyui/status');
+                const data = await response.json();
+
+                const statusText = document.getElementById('comfyui-status-text');
+                const wan21Text = document.getElementById('wan21-status-text');
+                const wan21Option = document.getElementById('wan21-option');
+
+                if (data.available) {
+                    statusText.textContent = 'Online';
+                    statusText.className = 'font-semibold text-green-600';
+                    wan21Text.textContent = 'Ready';
+                    wan21Text.className = 'font-semibold text-green-600';
+                    if (wan21Option) {
+                        wan21Option.disabled = false;
+                        wan21Option.textContent = 'WAN 2.1 + LightX2V (Ultra Fast) ✅';
+                    }
+                } else {
+                    statusText.textContent = 'Offline';
+                    statusText.className = 'font-semibold text-red-600';
+                    wan21Text.textContent = 'Not Available';
+                    wan21Text.className = 'font-semibold text-red-600';
+                    if (wan21Option) {
+                        wan21Option.disabled = true;
+                        wan21Option.textContent = 'WAN 2.1 + LightX2V (ComfyUI Offline) ❌';
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking ComfyUI status:', error);
+            }
+        }
+
+        // Updated generateVideo function with model selection
         async function generateVideo() {
             if (!uploadedVideoImageBase64) {
                 showNotification('Please upload an image first', 'error');
                 return;
             }
-            
+
             const preview = document.getElementById('img2vid-preview');
             const info = document.getElementById('img2vid-info');
-            
+            const model = document.getElementById('img2vid-model').value;
+
             const numFrames = parseInt(document.getElementById('img2vid-frames').value);
             const steps = parseInt(document.getElementById('img2vid-steps').value);
             const fps = parseInt(document.getElementById('img2vid-fps').value);
-            const motionBucket = parseInt(document.getElementById('img2vid-motion').value);
-            
+
             // Show loading
-            preview.innerHTML = '<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4 text-gray-600">Generating video... This may take 1-2 minutes</p></div>';
+            const modelName = model === 'wan21' ? 'WAN 2.1' : 'SVD';
+            const estimatedTime = model === 'wan21' ? '30-60 seconds' : '1-2 minutes';
+            preview.innerHTML = `<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4 text-gray-600">Generating video with ${modelName}... This may take ${estimatedTime}</p></div>`;
             info.innerHTML = '<p class="text-blue-600">⏳ Video generation in progress... Please wait...</p>';
-            
+
             try {
-                const response = await fetch('/api/video/svd', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                let endpoint, payload;
+
+                if (model === 'wan21') {
+                    // WAN 2.1 endpoint
+                    endpoint = '/api/video/wan21';
+                    const prompt = document.getElementById('img2vid-prompt').value || 'smooth camera movement, high quality';
+                    const guidance = parseFloat(document.getElementById('img2vid-guidance').value);
+
+                    payload = {
+                        image: uploadedVideoImageBase64,
+                        prompt: prompt,
+                        num_frames: numFrames,
+                        num_inference_steps: steps,
+                        guidance_scale: guidance,
+                        fps: fps
+                    };
+                } else {
+                    // SVD endpoint
+                    endpoint = '/api/video/svd';
+                    const motionBucket = parseInt(document.getElementById('img2vid-motion').value);
+
+                    payload = {
                         image: uploadedVideoImageBase64,
                         num_frames: numFrames,
                         num_inference_steps: steps,
                         fps: fps,
                         motion_bucket_id: motionBucket
-                    })
+                    };
+                }
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
-                
+
                 if (!response.ok) {
                     throw new Error('Video generation failed');
                 }
-                
+
                 const data = await response.json();
-                
+
                 // Display success message with download
                 preview.innerHTML = `
                     <div class="text-center">
                         <svg class="w-24 h-24 mx-auto mb-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
-                        <p class="text-gray-700 mb-4">✅ Video generated successfully!</p>
+                        <p class="text-gray-700 mb-4">✅ Video generated successfully with ${data.model}!</p>
                         <a href="${data.video_path.replace('/app/outputs/', '/api/download/')}" download 
                            class="inline-block bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition">
                             Download Video
                         </a>
                     </div>
                 `;
-                
-                info.innerHTML = `
+
+                let infoText = `
                     <div class="text-sm">
                         <p>✅ Generated in ${data.generation_time}s</p>
+                        <p>Model: ${data.model}</p>
                         <p>Frames: ${data.num_frames} at ${data.fps} FPS</p>
-                    </div>
                 `;
-                
+
+                if (data.resolution) {
+                    infoText += `<p>Resolution: ${data.resolution}</p>`;
+                }
+
+                if (data.note) {
+                    infoText += `<p class="mt-2 text-gray-600">${data.note}</p>`;
+                }
+
+                infoText += `</div>`;
+                info.innerHTML = infoText;
+
                 showNotification('Video generated successfully!', 'success');
                 refreshResults();
                 refreshMetrics();
-                
+
             } catch (error) {
                 preview.innerHTML = '<div class="text-center text-red-500"><p>❌ Video generation failed</p></div>';
                 info.innerHTML = `<p class="text-red-600">${error.message}</p>`;
                 showNotification('Video generation failed: ' + error.message, 'error');
+            }
+        }
+
+        // ControlNet Generation
+        function previewControlImage(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    uploadedControlImageBase64 = e.target.result;
+                    document.getElementById('controlnet-preview').innerHTML = `
+                        <img src="${e.target.result}" class="max-w-full h-auto rounded-lg" alt="Control image">
+                    `;
+                    document.getElementById('controlnet-btn').disabled = false;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        async function generateControlImage() {
+            if (!uploadedControlImageBase64) {
+                showNotification('Please upload a control image first', 'error');
+                return;
+            }
+
+            const prompt = document.getElementById('controlnet-prompt').value.trim();
+            if (!prompt) {
+                showNotification('Please enter a prompt', 'error');
+                return;
+            }
+
+            const preview = document.getElementById('controlnet-preview');
+            const info = document.getElementById('controlnet-info');
+            const button = document.getElementById('controlnet-btn');
+
+            const negativePrompt = document.getElementById('controlnet-negative').value;
+            const scale = parseFloat(document.getElementById('controlnet-scale').value);
+            const steps = parseInt(document.getElementById('controlnet-steps').value);
+            const guidance = parseFloat(document.getElementById('controlnet-guidance').value);
+            const width = parseInt(document.getElementById('controlnet-width').value);
+            const height = parseInt(document.getElementById('controlnet-height').value);
+            const seedValue = document.getElementById('controlnet-seed').value;
+            const model = document.getElementById('controlnet-model').value;
+
+            button.disabled = true;
+            preview.innerHTML = '<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4 text-gray-600">Generating image with ControlNet...</p></div>';
+            info.innerHTML = '<p class="text-blue-600">⏳ ControlNet generation in progress...</p>';
+
+            const payload = {
+                prompt: prompt,
+                negative_prompt: negativePrompt,
+                control_image: uploadedControlImageBase64,
+                controlnet_conditioning_scale: scale,
+                num_inference_steps: steps,
+                guidance_scale: guidance,
+                width: width,
+                height: height
+            };
+
+            if (seedValue) {
+                payload.seed = parseInt(seedValue);
+            }
+
+            const endpoint = model === 'union' ? '/api/controlnet/union' : '/api/controlnet/mistoline';
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error('ControlNet generation failed');
+                }
+
+                const data = await response.json();
+
+                preview.innerHTML = `
+                    <img src="data:image/png;base64,${data.image_base64}" class="max-w-full h-auto rounded-lg" alt="Generated ControlNet image">
+                `;
+
+                info.innerHTML = `
+                    <div class="text-sm space-y-1">
+                        <p>✅ Generated in ${data.generation_time}s</p>
+                        <p>Model: ${data.model}</p>
+                        <p>Resolution: ${width}x${height}</p>
+                        <p>Steps: ${steps} • Guidance: ${guidance}</p>
+                    </div>
+                `;
+
+                showNotification('ControlNet image generated successfully!', 'success');
+                refreshResults();
+                refreshMetrics();
+
+            } catch (error) {
+                preview.innerHTML = '<div class="text-center text-red-500"><p>❌ ControlNet generation failed</p></div>';
+                info.innerHTML = `<p class="text-red-600">${error.message}</p>`;
+                showNotification('ControlNet generation failed: ' + error.message, 'error');
+            } finally {
+                button.disabled = false;
             }
         }
 
