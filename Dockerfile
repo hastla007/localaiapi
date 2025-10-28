@@ -29,6 +29,36 @@ WORKDIR /app
 # Install latest nightly PyTorch with CUDA 12.8 (Blackwell GPU support)
 RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
 
+# Pre-download Flux low VRAM components
+RUN mkdir -p /app/models/flux/unet \
+    /app/models/flux/vae \
+    /app/models/flux/clip
+
+# Ensure huggingface-cli is available inside the image
+RUN pip install --no-cache-dir --upgrade huggingface-hub
+
+# Download Flux UNet weights
+RUN huggingface-cli download black-forest-labs/FLUX.1-dev \
+    flux1-dev.safetensors \
+    --local-dir /app/models/flux/unet \
+    --local-dir-use-symlinks False
+
+# Download Flux VAE weights
+RUN huggingface-cli download black-forest-labs/FLUX.1-dev \
+    ae.safetensors \
+    --local-dir /app/models/flux/vae \
+    --local-dir-use-symlinks False
+
+# Download CLIP text encoders (fp8 + CLIP-L)
+RUN huggingface-cli download comfyanonymous/flux_text_encoders \
+    clip_l.safetensors \
+    --local-dir /app/models/flux/clip \
+    --local-dir-use-symlinks False
+
+RUN huggingface-cli download comfyanonymous/flux_text_encoders \
+    t5xxl_fp8_e4m3fn.safetensors \
+    --local-dir /app/models/flux/clip \
+    --local-dir-use-symlinks False
 
 
 # Verify installation
