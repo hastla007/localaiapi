@@ -2,20 +2,31 @@ import torch
 import gc
 import time
 from typing import Dict, Any, Optional, Tuple
+import os
+
+# Import diffusers components
 from diffusers import (
-    FluxPipeline,
     StableDiffusionXLPipeline,
     StableDiffusion3Pipeline,
     StableVideoDiffusionPipeline,
     DPMSolverMultistepScheduler
 )
+
+# Try to import FluxPipeline (requires diffusers >= 0.30.0)
+try:
+    from diffusers import FluxPipeline
+    FLUX_AVAILABLE = True
+except ImportError:
+    FLUX_AVAILABLE = False
+    print("Warning: FluxPipeline not available. Install diffusers>=0.30.0 for Flux support.")
+
 from transformers import (
     AutoProcessor,
     AutoModelForVision2Seq,
     Blip2Processor,
     Blip2ForConditionalGeneration
 )
-import os
+
 
 class ModelManager:
     """Manages multiple AI models with lazy loading and automatic unloading"""
@@ -102,6 +113,11 @@ class ModelManager:
         print(f"Loading {model_info['name']} from {model_id}...")
         
         if model_key == "flux":
+            if not FLUX_AVAILABLE:
+                raise ImportError(
+                    "FluxPipeline is not available. "
+                    "Please upgrade diffusers: pip install diffusers>=0.30.0"
+                )
             pipe = FluxPipeline.from_pretrained(
                 model_id,
                 torch_dtype=torch.bfloat16,
