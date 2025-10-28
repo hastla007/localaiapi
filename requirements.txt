@@ -6,7 +6,7 @@ torch==2.5.1
 torchvision==0.20.1
 torchaudio==2.5.1
 diffusers==0.30.3
-transformers==4.44.0
+transformers>=4.45.0
 accelerate==0.33.0
 safetensors==0.4.4
 pillow==10.2.0
