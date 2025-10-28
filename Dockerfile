@@ -21,7 +21,7 @@ WORKDIR /app
 COPY requirements.txt .
 
 # ⚡ UPDATED: Install PyTorch 2.6.0 with CUDA 12.6 support (Blackwell compatible)
-RUN pip3 install --no-cache-dir torch==2.6.0 torchvision==0.20.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu126
+RUN pip3 install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu126
 
 # Install other requirements
 RUN pip3 install --no-cache-dir -r requirements.txt
