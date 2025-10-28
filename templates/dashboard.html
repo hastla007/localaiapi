@@ -83,7 +83,7 @@
         
         <!-- Overview Tab -->
         <div id="overview-tab" class="tab-content active">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
                 <!-- System Status Card -->
                 <div class="bg-white rounded-lg shadow-md p-6">
                     <h3 class="text-lg font-semibold text-gray-700 mb-4">System Status</h3>
@@ -133,6 +133,24 @@
                                 <div id="vram-bar" class="bg-blue-500 h-4 rounded-full transition-all" style="width: 0%"></div>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">ComfyUI Status</h3>
+                    <div id="comfyui-status" class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">ComfyUI:</span>
+                            <span id="comfyui-status-text" class="font-semibold text-gray-400">Checking...</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">WAN 2.1:</span>
+                            <span id="wan21-status-text" class="font-semibold text-gray-400">Checking...</span>
+                        </div>
+                        <button onclick="checkComfyUIStatus()"
+                                class="w-full bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-2 px-4 rounded transition mt-2">
+                            🔄 Check Status
+                        </button>
                     </div>
                 </div>
             </div>
@@ -420,7 +438,7 @@
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Model</label>
                                 <select id="img2vid-model" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" onchange="updateVideoModelParams()">
                                     <option value="svd">Stable Video Diffusion (Standard)</option>
-                                    <option value="wan21">WAN 2.1 + LightX2V (Ultra Fast)</option>
+                                    <option value="wan21" id="wan21-option" disabled>WAN 2.1 + LightX2V (ComfyUI Required)</option>
                                 </select>
                                 <p class="text-xs text-gray-500 mt-1" id="model-description">
                                     Standard image-to-video with smooth motion
@@ -792,9 +810,11 @@
             loadSettings();
             initCharts();
             updateVideoModelParams();
+            checkComfyUIStatus();
 
             // Auto-refresh every 30 seconds
             setInterval(refreshStatus, 30000);
+            setInterval(checkComfyUIStatus, 60000);
         });
 
         // Tab switching
@@ -1290,6 +1310,39 @@
 
                 videoWarning.innerHTML = '⚠️ Video generation takes 1-2 minutes and uses significant VRAM';
                 videoWarning.className = 'bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800';
+            }
+        }
+
+        async function checkComfyUIStatus() {
+            try {
+                const response = await fetch('/api/comfyui/status');
+                const data = await response.json();
+
+                const statusText = document.getElementById('comfyui-status-text');
+                const wan21Text = document.getElementById('wan21-status-text');
+                const wan21Option = document.getElementById('wan21-option');
+
+                if (data.available) {
+                    statusText.textContent = 'Online';
+                    statusText.className = 'font-semibold text-green-600';
+                    wan21Text.textContent = 'Ready';
+                    wan21Text.className = 'font-semibold text-green-600';
+                    if (wan21Option) {
+                        wan21Option.disabled = false;
+                        wan21Option.textContent = 'WAN 2.1 + LightX2V (Ultra Fast) ✅';
+                    }
+                } else {
+                    statusText.textContent = 'Offline';
+                    statusText.className = 'font-semibold text-red-600';
+                    wan21Text.textContent = 'Not Available';
+                    wan21Text.className = 'font-semibold text-red-600';
+                    if (wan21Option) {
+                        wan21Option.disabled = true;
+                        wan21Option.textContent = 'WAN 2.1 + LightX2V (ComfyUI Offline) ❌';
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking ComfyUI status:', error);
             }
         }
 

@@ -34,3 +34,7 @@ huggingface-hub==0.24.0
 
 # Configuration
 omegaconf==2.3.0
+
+# External service clients
+aiohttp==3.9.1
+websockets==12.0
