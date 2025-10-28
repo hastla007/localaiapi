@@ -20,20 +20,22 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install PyTorch with CUDA 12.6 support
+# Install PyTorch with CUDA 12.4 support (for RTX 5070 Ti)
 RUN pip3 install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
 
 # Install other requirements
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY . .
+COPY main.py .
+COPY model_manager.py .
 
 # Create directories for models, outputs, and templates
 RUN mkdir -p /app/models /app/outputs /app/cache /app/templates
 
-# Copy templates if they exist
-COPY templates/ /app/templates/ 2>/dev/null || true
+# Copy templates directory if it exists
+# Note: Make sure templates/ directory exists in your project root with dashboard.html inside
+COPY templates/ /app/templates/
 
 # Expose port
 EXPOSE 8000
