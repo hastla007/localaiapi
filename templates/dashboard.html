@@ -311,28 +311,50 @@
                 <!-- Image-to-Video -->
                 <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
                     <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
-                        🎬 Image-to-Video (SVD)
+                        🎬 Image-to-Video
                     </h3>
-                    
+
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <!-- Input Panel -->
                         <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Model</label>
+                                <select id="img2vid-model" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" onchange="updateVideoModelParams()">
+                                    <option value="svd">Stable Video Diffusion (Standard)</option>
+                                    <option value="wan21">WAN 2.1 + LightX2V (Ultra Fast)</option>
+                                </select>
+                                <p class="text-xs text-gray-500 mt-1" id="model-description">
+                                    Standard image-to-video with smooth motion
+                                </p>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">Upload Image</label>
                                 <input type="file" id="img2vid-upload" accept="image/*" 
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg"
                                     onchange="previewImageToVideo(this)">
-                                <p class="text-xs text-gray-500 mt-1">Will be resized to 1024x576 for optimal results</p>
+                                <p class="text-xs text-gray-500 mt-1" id="img2vid-resize-info">
+                                    Will be resized to 1024x576 for optimal results
+                                </p>
                             </div>
-                            
+
+                            <div id="img2vid-prompt-container" style="display: none;">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Prompt (Optional)</label>
+                                <textarea id="img2vid-prompt" rows="2" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="smooth camera movement, high quality"></textarea>
+                                <p class="text-xs text-gray-500 mt-1">Guidance for video generation</p>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Number of Frames: <span id="img2vid-frames-value">14</span>
                                 </label>
                                 <input type="range" id="img2vid-frames" min="8" max="25" value="14" 
                                     class="w-full" oninput="document.getElementById('img2vid-frames-value').textContent = this.value">
+                                <p class="text-xs text-gray-500 mt-1" id="frames-hint">~2 seconds at 7 FPS</p>
                             </div>
-                            
+
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Steps: <span id="img2vid-steps-value">25</span>
@@ -340,7 +362,16 @@
                                 <input type="range" id="img2vid-steps" min="10" max="50" value="25" 
                                     class="w-full" oninput="document.getElementById('img2vid-steps-value').textContent = this.value">
                             </div>
-                            
+
+                            <div id="guidance-container">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Guidance Scale: <span id="img2vid-guidance-value">1.5</span>
+                                </label>
+                                <input type="range" id="img2vid-guidance" min="1.0" max="3.5" step="0.1" value="1.5" 
+                                    class="w-full" oninput="document.getElementById('img2vid-guidance-value').textContent = this.value">
+                                <p class="text-xs text-gray-500 mt-1">How closely to follow the prompt</p>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     FPS: <span id="img2vid-fps-value">7</span>
@@ -348,26 +379,26 @@
                                 <input type="range" id="img2vid-fps" min="5" max="30" value="7" 
                                     class="w-full" oninput="document.getElementById('img2vid-fps-value').textContent = this.value">
                             </div>
-                            
-                            <div>
+
+                            <div id="motion-container">
                                 <label class="block text-sm font-medium text-gray-700 mb-2">
                                     Motion Intensity: <span id="img2vid-motion-value">127</span>
                                 </label>
                                 <input type="range" id="img2vid-motion" min="1" max="255" value="127" 
                                     class="w-full" oninput="document.getElementById('img2vid-motion-value').textContent = this.value">
-                                <p class="text-xs text-gray-500">Higher = more motion</p>
+                                <p class="text-xs text-gray-500">Higher = more motion (SVD only)</p>
                             </div>
-                            
+
                             <button onclick="generateVideo()" id="video-btn" disabled
                                 class="w-full bg-red-600 hover:bg-red-700 text-white font-medium py-3 px-6 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
                                 🎬 Generate Video
                             </button>
-                            
-                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800" id="video-warning">
                                 ⚠️ Video generation takes 1-2 minutes and uses significant VRAM
                             </div>
                         </div>
-                        
+
                         <!-- Preview Panel -->
                         <div>
                             <div class="bg-gray-50 rounded-lg border-2 border-gray-200 preview-container" id="img2vid-preview">
@@ -549,7 +580,8 @@
             refreshLogs();
             loadSettings();
             initCharts();
-            
+            updateVideoModelParams();
+
             // Auto-refresh every 30 seconds
             setInterval(refreshStatus, 30000);
         });
@@ -856,68 +888,193 @@
             }
         }
 
+        // Update video model parameters based on selection
+        function updateVideoModelParams() {
+            const model = document.getElementById('img2vid-model').value;
+            const framesInput = document.getElementById('img2vid-frames');
+            const framesValue = document.getElementById('img2vid-frames-value');
+            const stepsInput = document.getElementById('img2vid-steps');
+            const stepsValue = document.getElementById('img2vid-steps-value');
+            const fpsInput = document.getElementById('img2vid-fps');
+            const fpsValue = document.getElementById('img2vid-fps-value');
+            const guidanceInput = document.getElementById('img2vid-guidance');
+            const guidanceValue = document.getElementById('img2vid-guidance-value');
+            const motionContainer = document.getElementById('motion-container');
+            const guidanceContainer = document.getElementById('guidance-container');
+            const promptContainer = document.getElementById('img2vid-prompt-container');
+            const resizeInfo = document.getElementById('img2vid-resize-info');
+            const modelDesc = document.getElementById('model-description');
+            const framesHint = document.getElementById('frames-hint');
+            const videoWarning = document.getElementById('video-warning');
+
+            if (model === 'wan21') {
+                // WAN 2.1 + LightX2V settings
+                modelDesc.textContent = 'Ultra-fast image-to-video (4-8 steps optimal)';
+                resizeInfo.textContent = 'Will be resized to 832x480 or 480x832 based on orientation';
+
+                // Show prompt and guidance for WAN 2.1
+                promptContainer.style.display = 'block';
+                guidanceContainer.style.display = 'block';
+                motionContainer.style.display = 'none';
+
+                // Update defaults for WAN 2.1
+                framesInput.min = 25;
+                framesInput.max = 81;
+                framesInput.value = 49;
+                framesValue.textContent = 49;
+                framesHint.textContent = '~2 seconds at 24 FPS';
+
+                stepsInput.min = 4;
+                stepsInput.max = 12;
+                stepsInput.value = 6;
+                stepsValue.textContent = 6;
+
+                fpsInput.min = 16;
+                fpsInput.max = 30;
+                fpsInput.value = 24;
+                fpsValue.textContent = 24;
+
+                guidanceInput.value = 1.5;
+                guidanceValue.textContent = 1.5;
+
+                videoWarning.innerHTML = '⚡ WAN 2.1 style: Ultra-fast generation (30-60 seconds)';
+                videoWarning.className = 'bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800';
+
+            } else {
+                // SVD settings
+                modelDesc.textContent = 'Standard image-to-video with smooth motion';
+                resizeInfo.textContent = 'Will be resized to 1024x576 for optimal results';
+
+                // Show motion, hide prompt and guidance for SVD
+                promptContainer.style.display = 'none';
+                guidanceContainer.style.display = 'none';
+                motionContainer.style.display = 'block';
+
+                // Reset to SVD defaults
+                framesInput.min = 8;
+                framesInput.max = 25;
+                framesInput.value = 14;
+                framesValue.textContent = 14;
+                framesHint.textContent = '~2 seconds at 7 FPS';
+
+                stepsInput.min = 10;
+                stepsInput.max = 50;
+                stepsInput.value = 25;
+                stepsValue.textContent = 25;
+
+                fpsInput.min = 5;
+                fpsInput.max = 30;
+                fpsInput.value = 7;
+                fpsValue.textContent = 7;
+
+                guidanceInput.value = 1.5;
+                guidanceValue.textContent = 1.5;
+
+                videoWarning.innerHTML = '⚠️ Video generation takes 1-2 minutes and uses significant VRAM';
+                videoWarning.className = 'bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800';
+            }
+        }
+
+        // Updated generateVideo function with model selection
         async function generateVideo() {
             if (!uploadedVideoImageBase64) {
                 showNotification('Please upload an image first', 'error');
                 return;
             }
-            
+
             const preview = document.getElementById('img2vid-preview');
             const info = document.getElementById('img2vid-info');
-            
+            const model = document.getElementById('img2vid-model').value;
+
             const numFrames = parseInt(document.getElementById('img2vid-frames').value);
             const steps = parseInt(document.getElementById('img2vid-steps').value);
             const fps = parseInt(document.getElementById('img2vid-fps').value);
-            const motionBucket = parseInt(document.getElementById('img2vid-motion').value);
-            
+
             // Show loading
-            preview.innerHTML = '<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4 text-gray-600">Generating video... This may take 1-2 minutes</p></div>';
+            const modelName = model === 'wan21' ? 'WAN 2.1' : 'SVD';
+            const estimatedTime = model === 'wan21' ? '30-60 seconds' : '1-2 minutes';
+            preview.innerHTML = `<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4 text-gray-600">Generating video with ${modelName}... This may take ${estimatedTime}</p></div>`;
             info.innerHTML = '<p class="text-blue-600">⏳ Video generation in progress... Please wait...</p>';
-            
+
             try {
-                const response = await fetch('/api/video/svd', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                let endpoint, payload;
+
+                if (model === 'wan21') {
+                    // WAN 2.1 endpoint
+                    endpoint = '/api/video/wan21';
+                    const prompt = document.getElementById('img2vid-prompt').value || 'smooth camera movement, high quality';
+                    const guidance = parseFloat(document.getElementById('img2vid-guidance').value);
+
+                    payload = {
+                        image: uploadedVideoImageBase64,
+                        prompt: prompt,
+                        num_frames: numFrames,
+                        num_inference_steps: steps,
+                        guidance_scale: guidance,
+                        fps: fps
+                    };
+                } else {
+                    // SVD endpoint
+                    endpoint = '/api/video/svd';
+                    const motionBucket = parseInt(document.getElementById('img2vid-motion').value);
+
+                    payload = {
                         image: uploadedVideoImageBase64,
                         num_frames: numFrames,
                         num_inference_steps: steps,
                         fps: fps,
                         motion_bucket_id: motionBucket
-                    })
+                    };
+                }
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
-                
+
                 if (!response.ok) {
                     throw new Error('Video generation failed');
                 }
-                
+
                 const data = await response.json();
-                
+
                 // Display success message with download
                 preview.innerHTML = `
                     <div class="text-center">
                         <svg class="w-24 h-24 mx-auto mb-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
-                        <p class="text-gray-700 mb-4">✅ Video generated successfully!</p>
+                        <p class="text-gray-700 mb-4">✅ Video generated successfully with ${data.model}!</p>
                         <a href="${data.video_path.replace('/app/outputs/', '/api/download/')}" download 
                            class="inline-block bg-green-500 text-white px-6 py-3 rounded-lg hover:bg-green-600 transition">
                             Download Video
                         </a>
                     </div>
                 `;
-                
-                info.innerHTML = `
+
+                let infoText = `
                     <div class="text-sm">
                         <p>✅ Generated in ${data.generation_time}s</p>
+                        <p>Model: ${data.model}</p>
                         <p>Frames: ${data.num_frames} at ${data.fps} FPS</p>
-                    </div>
                 `;
-                
+
+                if (data.resolution) {
+                    infoText += `<p>Resolution: ${data.resolution}</p>`;
+                }
+
+                if (data.note) {
+                    infoText += `<p class="mt-2 text-gray-600">${data.note}</p>`;
+                }
+
+                infoText += `</div>`;
+                info.innerHTML = infoText;
+
                 showNotification('Video generated successfully!', 'success');
                 refreshResults();
                 refreshMetrics();
-                
+
             } catch (error) {
                 preview.innerHTML = '<div class="text-center text-red-500"><p>❌ Video generation failed</p></div>';
                 info.innerHTML = `<p class="text-red-600">${error.message}</p>`;
