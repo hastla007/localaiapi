@@ -20,8 +20,12 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# ⚡ UPDATED: Install PyTorch 2.6.0 with CUDA 12.6 support (Blackwell compatible)
-RUN pip3 install --no-cache-dir torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu126
+# ⚡ FIXED: Install PyTorch nightly with Blackwell (sm_120) support
+# Option 1: Use PyTorch nightly (recommended for RTX 5070)
+RUN pip3 install --no-cache-dir --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126
+
+# Option 2: Or use PyTorch 2.7+ when released (currently in development)
+# RUN pip3 install --no-cache-dir torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu126
 
 # Install other requirements
 RUN pip3 install --no-cache-dir -r requirements.txt
