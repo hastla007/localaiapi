@@ -24,8 +24,11 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create directories for models and outputs
-RUN mkdir -p /app/models /app/outputs /app/cache
+# Create directories for models, outputs, and templates
+RUN mkdir -p /app/models /app/outputs /app/cache /app/templates
+
+# Copy templates
+COPY templates/ /app/templates/
 
 # Expose port
 EXPOSE 8000

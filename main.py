@@ -1,13 +1,16 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import torch
 import gc
 import os
 import time
+import json
 from datetime import datetime
 from pathlib import Path
+from collections import deque, defaultdict
 import base64
 from io import BytesIO
 from PIL import Image
@@ -22,8 +25,58 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Initialize templates
+templates = Jinja2Templates(directory="/app/templates")
+
 # Initialize model manager
 model_manager = ModelManager()
+
+# ==================== METRICS & LOGGING ====================
+
+class MetricsTracker:
+    def __init__(self, max_history=100):
+        self.requests = deque(maxlen=max_history)
+        self.generation_times = deque(maxlen=max_history)
+        self.model_counts = defaultdict(int)
+        self.logs = deque(maxlen=200)
+        
+    def log_request(self, model: str, generation_time: float, request_type: str):
+        timestamp = datetime.now().isoformat()
+        self.requests.append({
+            "model": model,
+            "time": generation_time,
+            "type": request_type,
+            "timestamp": timestamp
+        })
+        self.generation_times.append(generation_time)
+        self.model_counts[model] += 1
+        self.add_log(f"{request_type} request to {model} completed in {generation_time:.2f}s")
+    
+    def add_log(self, message: str):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.logs.append({
+            "timestamp": timestamp,
+            "message": message
+        })
+    
+    def get_metrics(self):
+        return {
+            "total_requests": len(self.requests),
+            "avg_generation_time": sum(self.generation_times) / len(self.generation_times) if self.generation_times else 0,
+            "total_images": sum(1 for r in self.requests if r["type"] in ["text-to-image"]),
+            "total_videos": sum(1 for r in self.requests if r["type"] == "video"),
+            "requests_per_model": dict(self.model_counts),
+            "recent_times": list(self.generation_times)[-20:]
+        }
+    
+    def get_logs(self):
+        return list(self.logs)
+    
+    def clear_logs(self):
+        self.logs.clear()
+
+metrics_tracker = MetricsTracker()
+metrics_tracker.add_log("API started successfully")
 
 # ==================== REQUEST MODELS ====================
 
@@ -73,6 +126,90 @@ def encode_image_to_base64(image: Image.Image) -> str:
     image.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
+# ==================== DASHBOARD ENDPOINTS ====================
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Serve the dashboard HTML page"""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+@app.get("/api/dashboard/status")
+async def dashboard_status():
+    """Get system status for dashboard"""
+    return {
+        "status": "online",
+        "gpu_available": torch.cuda.is_available(),
+        "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None",
+        "loaded_models": model_manager.get_loaded_models(),
+        "model_stats": model_manager.get_model_stats(),
+        "available_models": model_manager.AVAILABLE_MODELS
+    }
+
+@app.get("/api/dashboard/results")
+async def dashboard_results():
+    """Get list of generated results"""
+    outputs_dir = Path("/app/outputs")
+    results = []
+    
+    if outputs_dir.exists():
+        for file in sorted(outputs_dir.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)[:50]:
+            if file.suffix in ['.png', '.jpg', '.jpeg']:
+                results.append({
+                    "type": "image",
+                    "path": f"/api/download/{file.name}",
+                    "thumbnail": f"/api/download/{file.name}",
+                    "filename": file.name,
+                    "model": file.stem.split('_')[0],
+                    "timestamp": datetime.fromtimestamp(file.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+                    "prompt": ""  # Could extract from metadata if stored
+                })
+            elif file.suffix in ['.mp4']:
+                results.append({
+                    "type": "video",
+                    "path": f"/api/download/{file.name}",
+                    "filename": file.name,
+                    "model": "svd",
+                    "timestamp": datetime.fromtimestamp(file.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                })
+    
+    return {"results": results}
+
+@app.get("/api/dashboard/metrics")
+async def dashboard_metrics():
+    """Get API metrics"""
+    return metrics_tracker.get_metrics()
+
+@app.get("/api/dashboard/logs")
+async def dashboard_logs():
+    """Get API logs"""
+    return {"logs": metrics_tracker.get_logs()}
+
+@app.post("/api/dashboard/logs/clear")
+async def clear_logs():
+    """Clear all logs"""
+    metrics_tracker.clear_logs()
+    metrics_tracker.add_log("Logs cleared by user")
+    return {"success": True}
+
+@app.get("/api/dashboard/settings")
+async def get_settings():
+    """Get current settings"""
+    return {
+        "max_loaded_models": model_manager.max_loaded_models,
+        "model_timeout": model_manager.model_timeout,
+        "cuda_device": os.getenv("CUDA_VISIBLE_DEVICES", "0"),
+        "api_port": 8000
+    }
+
+@app.post("/api/dashboard/settings")
+async def save_settings(settings: dict):
+    """Save settings (note: requires restart for most settings)"""
+    # For now, just save to a JSON file
+    settings_file = Path("/app/settings.json")
+    with open(settings_file, 'w') as f:
+        json.dump(settings, f)
+    return {"success": True, "message": "Settings saved. Restart container to apply changes."}
+
 # ==================== HEALTH CHECK ====================
 
 @app.get("/")
@@ -83,7 +220,8 @@ def read_root():
         "message": "Multi-Model AI API is running",
         "gpu_available": torch.cuda.is_available(),
         "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None",
-        "loaded_models": model_manager.get_loaded_models()
+        "loaded_models": model_manager.get_loaded_models(),
+        "dashboard_url": "/dashboard"
     }
 
 @app.get("/models")
@@ -101,6 +239,7 @@ def list_models():
 async def generate_flux(request: TextToImageRequest):
     """Generate image using Flux.1-dev model"""
     try:
+        metrics_tracker.add_log(f"Flux generation started: {request.prompt[:50]}...")
         start_time = time.time()
         
         # Load model
@@ -126,6 +265,7 @@ async def generate_flux(request: TextToImageRequest):
         filepath = save_image(image, "flux")
         
         generation_time = time.time() - start_time
+        metrics_tracker.log_request("flux", generation_time, "text-to-image")
         
         return JSONResponse({
             "success": True,
@@ -137,12 +277,14 @@ async def generate_flux(request: TextToImageRequest):
         })
         
     except Exception as e:
+        metrics_tracker.add_log(f"ERROR in Flux generation: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/generate/sdxl")
 async def generate_sdxl(request: TextToImageRequest):
     """Generate image using SDXL model"""
     try:
+        metrics_tracker.add_log(f"SDXL generation started: {request.prompt[:50]}...")
         start_time = time.time()
         
         pipe = model_manager.load_model("sdxl", "text-to-image")
@@ -163,6 +305,7 @@ async def generate_sdxl(request: TextToImageRequest):
         
         filepath = save_image(image, "sdxl")
         generation_time = time.time() - start_time
+        metrics_tracker.log_request("sdxl", generation_time, "text-to-image")
         
         return JSONResponse({
             "success": True,
@@ -174,12 +317,14 @@ async def generate_sdxl(request: TextToImageRequest):
         })
         
     except Exception as e:
+        metrics_tracker.add_log(f"ERROR in SDXL generation: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/generate/sd3")
 async def generate_sd3(request: TextToImageRequest):
     """Generate image using Stable Diffusion 3 model"""
     try:
+        metrics_tracker.add_log(f"SD3 generation started: {request.prompt[:50]}...")
         start_time = time.time()
         
         pipe = model_manager.load_model("sd3", "text-to-image")
@@ -200,6 +345,7 @@ async def generate_sd3(request: TextToImageRequest):
         
         filepath = save_image(image, "sd3")
         generation_time = time.time() - start_time
+        metrics_tracker.log_request("sd3", generation_time, "text-to-image")
         
         return JSONResponse({
             "success": True,
@@ -211,6 +357,7 @@ async def generate_sd3(request: TextToImageRequest):
         })
         
     except Exception as e:
+        metrics_tracker.add_log(f"ERROR in SD3 generation: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== IMAGE-TO-TEXT ENDPOINTS ====================
@@ -219,6 +366,7 @@ async def generate_sd3(request: TextToImageRequest):
 async def caption_llava(request: ImageToTextRequest):
     """Generate caption using LLaVA model"""
     try:
+        metrics_tracker.add_log("LLaVA caption started")
         start_time = time.time()
         
         # Decode image
@@ -245,6 +393,7 @@ async def caption_llava(request: ImageToTextRequest):
         caption = processor.decode(output[0], skip_special_tokens=True)
         
         generation_time = time.time() - start_time
+        metrics_tracker.log_request("llava", generation_time, "image-to-text")
         
         return JSONResponse({
             "success": True,
@@ -254,12 +403,14 @@ async def caption_llava(request: ImageToTextRequest):
         })
         
     except Exception as e:
+        metrics_tracker.add_log(f"ERROR in LLaVA caption: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/caption/blip")
 async def caption_blip(request: ImageToTextRequest):
     """Generate caption using BLIP-2 model"""
     try:
+        metrics_tracker.add_log("BLIP-2 caption started")
         start_time = time.time()
         
         image = decode_base64_image(request.image)
@@ -276,6 +427,7 @@ async def caption_blip(request: ImageToTextRequest):
         caption = processor.decode(output[0], skip_special_tokens=True)
         
         generation_time = time.time() - start_time
+        metrics_tracker.log_request("blip2", generation_time, "image-to-text")
         
         return JSONResponse({
             "success": True,
@@ -285,6 +437,7 @@ async def caption_blip(request: ImageToTextRequest):
         })
         
     except Exception as e:
+        metrics_tracker.add_log(f"ERROR in BLIP-2 caption: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== VIDEO GENERATION ENDPOINTS ====================
@@ -293,6 +446,7 @@ async def caption_blip(request: ImageToTextRequest):
 async def generate_video_svd(request: VideoGenerationRequest):
     """Generate video using Stable Video Diffusion"""
     try:
+        metrics_tracker.add_log("SVD video generation started")
         start_time = time.time()
         
         if not request.image:
@@ -332,6 +486,7 @@ async def generate_video_svd(request: VideoGenerationRequest):
         out.release()
         
         generation_time = time.time() - start_time
+        metrics_tracker.log_request("svd", generation_time, "video")
         
         return JSONResponse({
             "success": True,
@@ -343,6 +498,7 @@ async def generate_video_svd(request: VideoGenerationRequest):
         })
         
     except Exception as e:
+        metrics_tracker.add_log(f"ERROR in SVD video: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== UTILITY ENDPOINTS ====================
@@ -352,6 +508,7 @@ async def unload_model(model_name: str):
     """Manually unload a specific model"""
     try:
         model_manager.unload_model(model_name)
+        metrics_tracker.add_log(f"Model {model_name} unloaded manually")
         return JSONResponse({
             "success": True,
             "message": f"Model {model_name} unloaded",
@@ -365,6 +522,7 @@ async def unload_all_models():
     """Unload all models to free VRAM"""
     try:
         model_manager.unload_all()
+        metrics_tracker.add_log("All models unloaded manually")
         return JSONResponse({
             "success": True,
             "message": "All models unloaded",

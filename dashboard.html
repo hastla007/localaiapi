@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI API Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tab-button.active { background-color: #3b82f6; color: white; }
+        .gallery-item { transition: transform 0.2s; }
+        .gallery-item:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg">
+        <div class="container mx-auto px-4 py-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold">🤖 AI API Dashboard</h1>
+                    <p class="text-blue-100 mt-1">Multi-Model AI Management Console</p>
+                </div>
+                <div class="text-right">
+                    <div class="flex items-center space-x-2">
+                        <div id="status-indicator" class="w-3 h-3 rounded-full bg-green-400 animate-pulse"></div>
+                        <span id="status-text" class="text-sm">Online</span>
+                    </div>
+                    <div id="gpu-name" class="text-xs text-blue-100 mt-1">Loading...</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="bg-white shadow-md sticky top-0 z-10">
+        <div class="container mx-auto px-4">
+            <div class="flex space-x-2 py-3">
+                <button onclick="showTab('overview')" class="tab-button active px-6 py-2 rounded-lg font-medium transition">
+                    📊 Overview
+                </button>
+                <button onclick="showTab('results')" class="tab-button px-6 py-2 rounded-lg font-medium transition">
+                    🖼️ Results
+                </button>
+                <button onclick="showTab('metrics')" class="tab-button px-6 py-2 rounded-lg font-medium transition">
+                    📈 Metrics
+                </button>
+                <button onclick="showTab('logs')" class="tab-button px-6 py-2 rounded-lg font-medium transition">
+                    📝 Logs
+                </button>
+                <button onclick="showTab('settings')" class="tab-button px-6 py-2 rounded-lg font-medium transition">
+                    ⚙️ Settings
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+        
+        <!-- Overview Tab -->
+        <div id="overview-tab" class="tab-content active">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <!-- System Status Card -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">System Status</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">API Status:</span>
+                            <span id="api-status" class="font-semibold text-green-600">Online</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">GPU Available:</span>
+                            <span id="gpu-status" class="font-semibold">Yes</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Loaded Models:</span>
+                            <span id="loaded-count" class="font-semibold">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions Card -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Quick Actions</h3>
+                    <div class="space-y-2">
+                        <button onclick="unloadAllModels()" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium py-2 px-4 rounded transition">
+                            🗑️ Unload All Models
+                        </button>
+                        <button onclick="refreshStatus()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded transition">
+                            🔄 Refresh Status
+                        </button>
+                        <button onclick="testGeneration()" class="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-4 rounded transition">
+                            🧪 Test Generation
+                        </button>
+                    </div>
+                </div>
+
+                <!-- VRAM Usage Card -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">VRAM Usage</h3>
+                    <div id="vram-info" class="text-sm text-gray-600">
+                        <p class="mb-2">Estimated based on loaded models</p>
+                        <div class="mt-4">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span>Used VRAM</span>
+                                <span id="vram-usage">0 GB</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-4">
+                                <div id="vram-bar" class="bg-blue-500 h-4 rounded-full transition-all" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loaded Models -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Loaded Models</h3>
+                <div id="loaded-models-list" class="space-y-2">
+                    <p class="text-gray-500 text-center py-4">No models currently loaded</p>
+                </div>
+            </div>
+
+            <!-- Available Models -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-xl font-semibold text-gray-700 mb-4">Available Models</h3>
+                <div id="available-models-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- Will be populated by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Tab -->
+        <div id="results-tab" class="tab-content">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-xl font-semibold text-gray-700">Generated Results</h3>
+                    <button onclick="refreshResults()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded transition">
+                        🔄 Refresh
+                    </button>
+                </div>
+                <div id="results-gallery" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <!-- Will be populated by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Metrics Tab -->
+        <div id="metrics-tab" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Generation Times Chart -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Generation Times</h3>
+                    <canvas id="timesChart"></canvas>
+                </div>
+
+                <!-- Requests Per Model Chart -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">Requests Per Model</h3>
+                    <canvas id="requestsChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="text-3xl font-bold text-blue-600" id="total-requests">0</div>
+                    <div class="text-sm text-gray-600 mt-2">Total Requests</div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="text-3xl font-bold text-green-600" id="avg-time">0s</div>
+                    <div class="text-sm text-gray-600 mt-2">Avg Generation Time</div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="text-3xl font-bold text-purple-600" id="total-images">0</div>
+                    <div class="text-sm text-gray-600 mt-2">Images Generated</div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <div class="text-3xl font-bold text-orange-600" id="total-videos">0</div>
+                    <div class="text-sm text-gray-600 mt-2">Videos Generated</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="logs-tab" class="tab-content">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold text-gray-700">API Logs</h3>
+                    <div class="space-x-2">
+                        <button onclick="refreshLogs()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded transition">
+                            🔄 Refresh
+                        </button>
+                        <button onclick="clearLogs()" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded transition">
+                            🗑️ Clear
+                        </button>
+                    </div>
+                </div>
+                <div id="logs-container" class="bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-lg h-96 overflow-y-auto">
+                    <!-- Logs will be populated here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab-content">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Model Management Settings -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">Model Management</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Max Loaded Models
+                            </label>
+                            <input type="number" id="max-loaded-models" min="1" max="10" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <p class="text-xs text-gray-500 mt-1">How many models to keep in memory (requires restart)</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Model Timeout (seconds)
+                            </label>
+                            <input type="number" id="model-timeout" min="60" max="3600" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                            <p class="text-xs text-gray-500 mt-1">Time before auto-unloading unused models</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- API Configuration -->
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-xl font-semibold text-gray-700 mb-4">API Configuration</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                API Port
+                            </label>
+                            <input type="number" id="api-port" value="8000" disabled
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100">
+                            <p class="text-xs text-gray-500 mt-1">Change in docker-compose.yml</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                CUDA Device
+                            </label>
+                            <input type="number" id="cuda-device" value="0" disabled
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100">
+                            <p class="text-xs text-gray-500 mt-1">GPU device index (requires restart)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Save Settings -->
+                <div class="lg:col-span-2">
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                        <p class="text-sm text-yellow-800">
+                            ⚠️ <strong>Note:</strong> Most settings require restarting the Docker container to take effect.
+                            Run: <code class="bg-yellow-100 px-2 py-1 rounded">docker-compose restart</code>
+                        </p>
+                    </div>
+                    <button onclick="saveSettings()" class="bg-green-500 hover:bg-green-600 text-white font-medium py-3 px-6 rounded-lg transition">
+                        💾 Save Settings
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-gray-300 py-6 mt-12">
+        <div class="container mx-auto px-4 text-center">
+            <p>AI API Dashboard v1.0 • Built for n8n automation workflows</p>
+        </div>
+    </footer>
+
+    <script>
+        // Global state
+        let metrics = {
+            requests: [],
+            generationTimes: [],
+            modelCounts: {}
+        };
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshStatus();
+            refreshResults();
+            refreshLogs();
+            loadSettings();
+            initCharts();
+            
+            // Auto-refresh every 30 seconds
+            setInterval(refreshStatus, 30000);
+        });
+
+        // Tab switching
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Refresh system status
+        async function refreshStatus() {
+            try {
+                const response = await fetch('/api/dashboard/status');
+                const data = await response.json();
+                
+                // Update header
+                document.getElementById('status-text').textContent = data.status;
+                document.getElementById('gpu-name').textContent = data.gpu_name || 'No GPU';
+                
+                // Update overview cards
+                document.getElementById('api-status').textContent = data.status;
+                document.getElementById('gpu-status').textContent = data.gpu_available ? 'Yes' : 'No';
+                document.getElementById('loaded-count').textContent = data.loaded_models.length;
+                
+                // Update VRAM
+                updateVRAM(data.model_stats);
+                
+                // Update loaded models list
+                updateLoadedModels(data.loaded_models, data.model_stats);
+                
+                // Update available models
+                updateAvailableModels(data.available_models);
+                
+            } catch (error) {
+                console.error('Error fetching status:', error);
+                document.getElementById('status-indicator').classList.remove('bg-green-400');
+                document.getElementById('status-indicator').classList.add('bg-red-400');
+                document.getElementById('status-text').textContent = 'Offline';
+            }
+        }
+
+        function updateVRAM(modelStats) {
+            let totalVRAM = 0;
+            for (const model in modelStats) {
+                totalVRAM += modelStats[model].vram_estimate_gb;
+            }
+            
+            const maxVRAM = 24; // Adjust based on your GPU
+            const percentage = (totalVRAM / maxVRAM) * 100;
+            
+            document.getElementById('vram-usage').textContent = totalVRAM.toFixed(1) + ' GB';
+            document.getElementById('vram-bar').style.width = Math.min(percentage, 100) + '%';
+            
+            if (percentage > 80) {
+                document.getElementById('vram-bar').classList.remove('bg-blue-500');
+                document.getElementById('vram-bar').classList.add('bg-red-500');
+            } else {
+                document.getElementById('vram-bar').classList.remove('bg-red-500');
+                document.getElementById('vram-bar').classList.add('bg-blue-500');
+            }
+        }
+
+        function updateLoadedModels(loadedModels, modelStats) {
+            const container = document.getElementById('loaded-models-list');
+            
+            if (loadedModels.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-center py-4">No models currently loaded</p>';
+                return;
+            }
+            
+            container.innerHTML = loadedModels.map(modelKey => {
+                const stats = modelStats[modelKey];
+                return `
+                    <div class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div>
+                            <span class="font-medium text-gray-800">${modelKey}</span>
+                            <span class="text-sm text-gray-500 ml-2">
+                                (Last used: ${stats.last_used_seconds_ago.toFixed(0)}s ago)
+                            </span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs text-gray-500">${stats.vram_estimate_gb} GB</span>
+                            <button onclick="unloadModel('${modelKey}')" 
+                                    class="bg-red-500 hover:bg-red-600 text-white text-sm px-3 py-1 rounded transition">
+                                Unload
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateAvailableModels(availableModels) {
+            const container = document.getElementById('available-models-list');
+            
+            container.innerHTML = Object.entries(availableModels).map(([key, model]) => {
+                return `
+                    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <div class="flex items-start justify-between mb-2">
+                            <h4 class="font-semibold text-gray-800">${model.name}</h4>
+                            <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">${model.type}</span>
+                        </div>
+                        <p class="text-sm text-gray-600 mb-2">VRAM: ~${model.vram_gb} GB</p>
+                        <p class="text-xs text-gray-500">${model.model_id}</p>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Unload models
+        async function unloadModel(modelName) {
+            try {
+                const response = await fetch(`/api/unload/${modelName}`, { method: 'POST' });
+                if (response.ok) {
+                    refreshStatus();
+                    showNotification('Model unloaded successfully', 'success');
+                }
+            } catch (error) {
+                showNotification('Error unloading model', 'error');
+            }
+        }
+
+        async function unloadAllModels() {
+            if (!confirm('Are you sure you want to unload all models?')) return;
+            
+            try {
+                const response = await fetch('/api/unload-all', { method: 'POST' });
+                if (response.ok) {
+                    refreshStatus();
+                    showNotification('All models unloaded', 'success');
+                }
+            } catch (error) {
+                showNotification('Error unloading models', 'error');
+            }
+        }
+
+        // Results
+        async function refreshResults() {
+            try {
+                const response = await fetch('/api/dashboard/results');
+                const data = await response.json();
+                
+                const container = document.getElementById('results-gallery');
+                
+                if (data.results.length === 0) {
+                    container.innerHTML = '<div class="col-span-full text-center py-12 text-gray-500">No results yet. Generate some images to see them here!</div>';
+                    return;
+                }
+                
+                container.innerHTML = data.results.map(result => {
+                    if (result.type === 'image') {
+                        return `
+                            <div class="gallery-item bg-white rounded-lg shadow-md overflow-hidden">
+                                <img src="${result.thumbnail}" alt="${result.model}" class="w-full h-48 object-cover">
+                                <div class="p-4">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <span class="text-sm font-medium text-gray-700">${result.model}</span>
+                                        <span class="text-xs text-gray-500">${result.timestamp}</span>
+                                    </div>
+                                    <p class="text-xs text-gray-600 truncate">${result.prompt || 'No prompt'}</p>
+                                    <a href="${result.path}" download class="mt-2 block text-center bg-blue-500 hover:bg-blue-600 text-white text-sm py-1 rounded transition">
+                                        Download
+                                    </a>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        return `
+                            <div class="gallery-item bg-white rounded-lg shadow-md p-4">
+                                <div class="flex items-center justify-center h-48 bg-gray-100 rounded mb-3">
+                                    <span class="text-4xl">🎬</span>
+                                </div>
+                                <div class="flex justify-between items-start mb-2">
+                                    <span class="text-sm font-medium text-gray-700">Video</span>
+                                    <span class="text-xs text-gray-500">${result.timestamp}</span>
+                                </div>
+                                <a href="${result.path}" download class="block text-center bg-blue-500 hover:bg-blue-600 text-white text-sm py-1 rounded transition">
+                                    Download
+                                </a>
+                            </div>
+                        `;
+                    }
+                }).join('');
+                
+            } catch (error) {
+                console.error('Error fetching results:', error);
+            }
+        }
+
+        // Metrics
+        function initCharts() {
+            // Generation times chart
+            const timesCtx = document.getElementById('timesChart').getContext('2d');
+            window.timesChart = new Chart(timesCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Generation Time (s)',
+                        data: [],
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+            
+            // Requests chart
+            const requestsCtx = document.getElementById('requestsChart').getContext('2d');
+            window.requestsChart = new Chart(requestsCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Requests',
+                        data: [],
+                        backgroundColor: [
+                            'rgba(59, 130, 246, 0.7)',
+                            'rgba(168, 85, 247, 0.7)',
+                            'rgba(34, 197, 94, 0.7)',
+                            'rgba(251, 146, 60, 0.7)'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true
+                }
+            });
+            
+            refreshMetrics();
+        }
+
+        async function refreshMetrics() {
+            try {
+                const response = await fetch('/api/dashboard/metrics');
+                const data = await response.json();
+                
+                // Update stats
+                document.getElementById('total-requests').textContent = data.total_requests;
+                document.getElementById('avg-time').textContent = data.avg_generation_time.toFixed(1) + 's';
+                document.getElementById('total-images').textContent = data.total_images;
+                document.getElementById('total-videos').textContent = data.total_videos;
+                
+                // Update charts
+                if (window.timesChart && data.recent_times.length > 0) {
+                    window.timesChart.data.labels = data.recent_times.map((_, i) => `#${i+1}`);
+                    window.timesChart.data.datasets[0].data = data.recent_times;
+                    window.timesChart.update();
+                }
+                
+                if (window.requestsChart) {
+                    window.requestsChart.data.labels = Object.keys(data.requests_per_model);
+                    window.requestsChart.data.datasets[0].data = Object.values(data.requests_per_model);
+                    window.requestsChart.update();
+                }
+                
+            } catch (error) {
+                console.error('Error fetching metrics:', error);
+            }
+        }
+
+        // Logs
+        async function refreshLogs() {
+            try {
+                const response = await fetch('/api/dashboard/logs');
+                const data = await response.json();
+                
+                const container = document.getElementById('logs-container');
+                container.innerHTML = data.logs.map(log => 
+                    `<div class="mb-1"><span class="text-gray-500">[${log.timestamp}]</span> ${log.message}</div>`
+                ).join('');
+                
+                // Auto-scroll to bottom
+                container.scrollTop = container.scrollHeight;
+                
+            } catch (error) {
+                console.error('Error fetching logs:', error);
+            }
+        }
+
+        function clearLogs() {
+            if (!confirm('Clear all logs?')) return;
+            fetch('/api/dashboard/logs/clear', { method: 'POST' })
+                .then(() => refreshLogs());
+        }
+
+        // Settings
+        function loadSettings() {
+            fetch('/api/dashboard/settings')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('max-loaded-models').value = data.max_loaded_models;
+                    document.getElementById('model-timeout').value = data.model_timeout;
+                });
+        }
+
+        function saveSettings() {
+            const settings = {
+                max_loaded_models: parseInt(document.getElementById('max-loaded-models').value),
+                model_timeout: parseInt(document.getElementById('model-timeout').value)
+            };
+            
+            fetch('/api/dashboard/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            })
+            .then(r => r.json())
+            .then(data => {
+                showNotification('Settings saved! Restart container for changes to take effect.', 'success');
+            })
+            .catch(error => {
+                showNotification('Error saving settings', 'error');
+            });
+        }
+
+        // Test generation
+        function testGeneration() {
+            showNotification('Starting test generation...', 'info');
+            
+            fetch('/api/generate/sdxl', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: 'a beautiful sunset over mountains',
+                    width: 512,
+                    height: 512,
+                    num_inference_steps: 20
+                })
+            })
+            .then(r => r.json())
+            .then(data => {
+                showNotification(`Test complete! Generated in ${data.generation_time}s`, 'success');
+                refreshResults();
+                refreshMetrics();
+            })
+            .catch(error => {
+                showNotification('Test failed: ' + error.message, 'error');
+            });
+        }
+
+        // Notifications
+        function showNotification(message, type = 'info') {
+            const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                info: 'bg-blue-500'
+            };
+            
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 ${colors[type]} text-white px-6 py-3 rounded-lg shadow-lg z-50 transition-opacity`;
+            notification.textContent = message;
+            
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
