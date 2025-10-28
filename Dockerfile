@@ -35,7 +35,7 @@ RUN mkdir -p /app/models/flux/unet \
     /app/models/flux/clip
 
 # Ensure huggingface-cli is available inside the image
-RUN pip install --no-cache-dir --upgrade huggingface-hub
+RUN pip install --no-cache-dir --upgrade "huggingface_hub[cli]"
 
 # Download Flux UNet weights
 RUN huggingface-cli download black-forest-labs/FLUX.1-dev \
@@ -59,7 +59,6 @@ RUN huggingface-cli download comfyanonymous/flux_text_encoders \
     t5xxl_fp8_e4m3fn.safetensors \
     --local-dir /app/models/flux/clip \
     --local-dir-use-symlinks False
-
 
 # Verify installation
 RUN python3 - <<'EOF'
