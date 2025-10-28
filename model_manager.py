@@ -10,7 +10,6 @@ from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusion3Pipeline,
     StableVideoDiffusionPipeline,
-    StableDiffusionPipeline,
     ControlNetModel,
     StableDiffusionXLControlNetPipeline,
     DPMSolverMultistepScheduler,
@@ -235,14 +234,20 @@ class ModelManager:
             pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True)
         elif model_key == "pony":
             dtype = self._select_dtype(torch.float16)
-            pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, safety_checker=None)
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                use_safetensors=True,
+            )
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         else:
             raise ValueError(f"Unknown text-to-image model: {model_key}")
 
         if self.cuda_compatible:
             pipe.enable_model_cpu_offload()
-            pipe.enable_vae_slicing()
+            # Only enable VAE slicing for pipelines that support it
+            if hasattr(pipe, "enable_vae_slicing"):
+                pipe.enable_vae_slicing()
             try:
                 pipe.enable_xformers_memory_efficient_attention()
                 print("  xformers enabled")

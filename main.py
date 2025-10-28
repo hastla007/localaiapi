@@ -329,7 +329,249 @@ async def generate_sdxl(request: TextToImageRequest):
         metrics_tracker.add_log(f"ERROR in SDXL: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Skipping other image generation endpoints for brevity - they remain the same
+
+@app.post("/api/generate/sd3")
+async def generate_sd3(request: TextToImageRequest):
+    try:
+        metrics_tracker.add_log("SD3 generation started")
+        start_time = time.time()
+        pipe = model_manager.load_model("sd3", "text-to-image")
+        generator = None
+        if request.seed is not None:
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+        image = pipe(
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            width=request.width,
+            height=request.height,
+            num_inference_steps=request.num_inference_steps,
+            guidance_scale=request.guidance_scale,
+            generator=generator,
+        ).images[0]
+        filepath = save_image(image, "sd3")
+        generation_time = time.time() - start_time
+        metrics_tracker.log_request("sd3", generation_time, "text-to-image")
+        return JSONResponse({
+            "success": True,
+            "model": "stable-diffusion-3",
+            "image_path": filepath,
+            "image_base64": encode_image_to_base64(image),
+            "generation_time": round(generation_time, 2),
+            "parameters": request.dict(),
+        })
+    except Exception as e:
+        metrics_tracker.add_log(f"ERROR in SD3: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/generate/pony")
+async def generate_pony(request: TextToImageRequest):
+    try:
+        metrics_tracker.add_log("Pony generation started")
+        start_time = time.time()
+        pipe = model_manager.load_model("pony", "text-to-image")
+        generator = None
+        if request.seed is not None:
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+        image = pipe(
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            width=request.width,
+            height=request.height,
+            num_inference_steps=request.num_inference_steps,
+            guidance_scale=request.guidance_scale,
+            generator=generator,
+        ).images[0]
+        filepath = save_image(image, "pony")
+        generation_time = time.time() - start_time
+        metrics_tracker.log_request("pony", generation_time, "text-to-image")
+        return JSONResponse({
+            "success": True,
+            "model": "pony-diffusion-v7",
+            "image_path": filepath,
+            "image_base64": encode_image_to_base64(image),
+            "generation_time": round(generation_time, 2),
+            "parameters": request.dict(),
+        })
+    except Exception as e:
+        metrics_tracker.add_log(f"ERROR in Pony: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/caption/llava")
+async def caption_llava(request: ImageToTextRequest):
+    try:
+        metrics_tracker.add_log("LLaVA captioning started")
+        start_time = time.time()
+        image = decode_base64_image(request.image)
+        model, processor = model_manager.load_model("llava", "image-to-text")
+        inputs = processor(
+            images=image,
+            text=request.prompt,
+            return_tensors="pt"
+        ).to(model.device)
+        max_new_tokens = min(request.max_length, 256)
+        with torch.no_grad():
+            generated_ids = model.generate(**inputs, max_new_tokens=max_new_tokens)
+        caption = processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+        if request.prompt:
+            caption = caption.replace(request.prompt, "").strip()
+        generation_time = time.time() - start_time
+        metrics_tracker.log_request("llava", generation_time, "image-to-text")
+        return JSONResponse({
+            "success": True,
+            "model": "llava-1.6",
+            "caption": caption,
+            "generation_time": round(generation_time, 2),
+        })
+    except Exception as e:
+        metrics_tracker.add_log(f"ERROR in LLaVA: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/caption/blip")
+async def caption_blip(request: ImageToTextRequest):
+    try:
+        metrics_tracker.add_log("BLIP captioning started")
+        start_time = time.time()
+        image = decode_base64_image(request.image)
+        model, processor = model_manager.load_model("blip2", "image-to-text")
+        inputs = processor(
+            images=image,
+            text=request.prompt,
+            return_tensors="pt"
+        ).to(model.device)
+        max_new_tokens = min(request.max_length, 256)
+        with torch.no_grad():
+            generated_ids = model.generate(**inputs, max_new_tokens=max_new_tokens)
+        caption = processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+        generation_time = time.time() - start_time
+        metrics_tracker.log_request("blip2", generation_time, "image-to-text")
+        return JSONResponse({
+            "success": True,
+            "model": "blip-2",
+            "caption": caption,
+            "generation_time": round(generation_time, 2),
+        })
+    except Exception as e:
+        metrics_tracker.add_log(f"ERROR in BLIP: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/caption/qwen")
+async def caption_qwen(request: ImageToTextRequest):
+    try:
+        metrics_tracker.add_log("Qwen captioning started")
+        start_time = time.time()
+        image = decode_base64_image(request.image)
+        model, processor = model_manager.load_model("qwen", "image-to-text")
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image"},
+                {"type": "text", "text": request.prompt or "Describe this image in detail."}
+            ],
+        }]
+        inputs = processor(messages, images=[image], return_tensors="pt").to(model.device)
+        max_new_tokens = min(request.max_length, 256)
+        with torch.no_grad():
+            generated_ids = model.generate(**inputs, max_new_tokens=max_new_tokens)
+        input_ids = inputs.get("input_ids")
+        if input_ids is not None:
+            generated_slice = generated_ids[:, input_ids.shape[-1]:]
+        else:
+            generated_slice = generated_ids
+        generated_text = processor.batch_decode(
+            generated_slice,
+            skip_special_tokens=True,
+        )[0].strip()
+        generation_time = time.time() - start_time
+        metrics_tracker.log_request("qwen", generation_time, "image-to-text")
+        return JSONResponse({
+            "success": True,
+            "model": "qwen2-vl-2b",
+            "caption": generated_text,
+            "generation_time": round(generation_time, 2),
+        })
+    except Exception as e:
+        metrics_tracker.add_log(f"ERROR in Qwen: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/controlnet/mistoline")
+async def controlnet_mistoline(request: ControlNetRequest):
+    try:
+        metrics_tracker.add_log("MistoLine ControlNet generation started")
+        start_time = time.time()
+        pipe = model_manager.load_model("mistoline", "controlnet")
+        control_image = decode_base64_image(request.control_image)
+        generator = None
+        if request.seed is not None:
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+        output = pipe(
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            image=control_image,
+            controlnet_conditioning_scale=request.controlnet_conditioning_scale,
+            width=request.width,
+            height=request.height,
+            num_inference_steps=request.num_inference_steps,
+            guidance_scale=request.guidance_scale,
+            generator=generator,
+        )
+        image = output.images[0]
+        filepath = save_image(image, "mistoline")
+        generation_time = time.time() - start_time
+        metrics_tracker.log_request("mistoline", generation_time, "controlnet")
+        return JSONResponse({
+            "success": True,
+            "model": "mistoline-controlnet",
+            "image_path": filepath,
+            "image_base64": encode_image_to_base64(image),
+            "generation_time": round(generation_time, 2),
+            "parameters": request.dict(exclude={"control_image"}),
+        })
+    except Exception as e:
+        metrics_tracker.add_log(f"ERROR in MistoLine ControlNet: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/controlnet/union")
+async def controlnet_union(request: ControlNetRequest):
+    try:
+        metrics_tracker.add_log("ControlNet Union generation started")
+        start_time = time.time()
+        pipe = model_manager.load_model("controlnet-union", "controlnet")
+        control_image = decode_base64_image(request.control_image)
+        generator = None
+        if request.seed is not None:
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+        output = pipe(
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            image=control_image,
+            controlnet_conditioning_scale=request.controlnet_conditioning_scale,
+            width=request.width,
+            height=request.height,
+            num_inference_steps=request.num_inference_steps,
+            guidance_scale=request.guidance_scale,
+            generator=generator,
+        )
+        image = output.images[0]
+        filepath = save_image(image, "controlnet-union")
+        generation_time = time.time() - start_time
+        metrics_tracker.log_request("controlnet-union", generation_time, "controlnet")
+        return JSONResponse({
+            "success": True,
+            "model": "controlnet-union-sdxl",
+            "image_path": filepath,
+            "image_base64": encode_image_to_base64(image),
+            "generation_time": round(generation_time, 2),
+            "parameters": request.dict(exclude={"control_image"}),
+        })
+    except Exception as e:
+        metrics_tracker.add_log(f"ERROR in ControlNet Union: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== VIDEO GENERATION ENDPOINTS ====================
 
