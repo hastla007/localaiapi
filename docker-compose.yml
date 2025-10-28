@@ -19,6 +19,7 @@ services:
       - CUDA_VISIBLE_DEVICES=0
       - MAX_LOADED_MODELS=2
       - MODEL_TIMEOUT=300
+      - HF_TOKEN=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  # ← ADD THIS LINE
       # Blackwell (RTX 5070 Ti) optimizations
       - TORCH_CUDA_ARCH_LIST=8.0;8.6;8.9;9.0;12.0
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
