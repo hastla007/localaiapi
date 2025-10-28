@@ -10,6 +10,7 @@ services:
       - ./models:/app/models
       - ./outputs:/app/outputs
       - ./cache:/app/cache
+      - ./templates:/app/templates
     environment:
       - HF_HOME=/app/cache
       - TRANSFORMERS_CACHE=/app/cache
