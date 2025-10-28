@@ -26,8 +26,9 @@ RUN pip install --upgrade pip setuptools wheel
 
 WORKDIR /app
 
-# 🧠 Install nightly PyTorch with CUDA 12.8 support
-RUN pip3 install torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 --index-url https://download.pytorch.org/whl/cu126
+# Install latest nightly PyTorch with CUDA 12.8 (Blackwell GPU support)
+RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+
 
 
 # Verify installation
