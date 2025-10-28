@@ -188,8 +188,10 @@ async def dashboard(request: Request):
 async def dashboard_status():
     return {
         "status": "online",
-        "gpu_available": torch.cuda.is_available(),
-        "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None",
+        "gpu_available": model_manager.cuda_compatible,
+        "raw_cuda_available": torch.cuda.is_available(),
+        "gpu_name": model_manager.device_name if torch.cuda.is_available() else "None",
+        "cuda_capability": f"sm_{model_manager.device_capability[0]}{model_manager.device_capability[1]}" if model_manager.device_capability else None,
         "loaded_models": model_manager.get_loaded_models(),
         "model_stats": model_manager.get_model_stats(),
         "available_models": model_manager.AVAILABLE_MODELS
@@ -260,8 +262,10 @@ def read_root():
     return {
         "status": "online",
         "message": "Multi-Model AI API v1.2 - AnimateDiff Lightning & WAN 2.1",
-        "gpu_available": torch.cuda.is_available(),
-        "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "None",
+        "gpu_available": model_manager.cuda_compatible,
+        "raw_cuda_available": torch.cuda.is_available(),
+        "gpu_name": model_manager.device_name if torch.cuda.is_available() else "None",
+        "cuda_capability": f"sm_{model_manager.device_capability[0]}{model_manager.device_capability[1]}" if model_manager.device_capability else None,
         "loaded_models": model_manager.get_loaded_models(),
         "total_models": len(model_manager.AVAILABLE_MODELS),
         "new_models": ["AnimateDiff Lightning (4-8 steps)", "WAN 2.1 + LightX2V (ultra-fast)"],
@@ -286,7 +290,7 @@ async def generate_flux(request: TextToImageRequest):
         pipe = model_manager.load_model("flux", "text-to-image")
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device="cuda").manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
         image = pipe(
             prompt=request.prompt, negative_prompt=request.negative_prompt, width=request.width,
             height=request.height, num_inference_steps=request.num_inference_steps,
@@ -312,7 +316,7 @@ async def generate_sdxl(request: TextToImageRequest):
         pipe = model_manager.load_model("sdxl", "text-to-image")
         generator = None
         if request.seed:
-            generator = torch.Generator(device="cuda").manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
         image = pipe(prompt=request.prompt, negative_prompt=request.negative_prompt, width=request.width,
                     height=request.height, num_inference_steps=request.num_inference_steps,
                     guidance_scale=request.guidance_scale, generator=generator).images[0]
@@ -362,7 +366,7 @@ async def generate_video_animatediff(request: AnimateDiffRequest):
         
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device="cuda").manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
         
         output = pipe(
             prompt=request.prompt,
@@ -415,7 +419,7 @@ async def generate_video_wan21(request: WAN21Request):
         
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device="cuda").manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
         
         # Use CogVideoX or SVD with WAN-style parameters
         output = pipe(

@@ -1,8 +1,8 @@
 # =====================================================
 # Optimized for RTX 5070 Ti (Blackwell, sm_120)
-# CUDA 12.4.1 + PyTorch 2.4.x + FastAPI / Uvicorn app
+# CUDA 12.6.0 + PyTorch 2.9.x + FastAPI / Uvicorn app
 # =====================================================
-FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+FROM pytorch/pytorch:2.9.0-cuda12.6-cudnn9-runtime
 
 # Environment configuration
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -28,9 +28,9 @@ RUN pip install --upgrade pip setuptools wheel
 # Set working directory
 WORKDIR /app
 
-# Pre-install stable PyTorch (ensures CUDA 12.4 build)
-RUN pip install --upgrade torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu124
+# Pre-install stable PyTorch (ensures CUDA 12.6 build)
+RUN pip install --upgrade torch==2.9.0 torchvision==0.20.0 torchaudio==2.9.0 \
+    --index-url https://download.pytorch.org/whl/cu126
 
 # Verify PyTorch and GPU visibility
 RUN python - <<'EOF'

@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -26,9 +26,9 @@ RUN pip3 install --upgrade pip setuptools wheel
 # Set working directory
 WORKDIR /app
 
-# ⚡ SOLUTION 1: Install PyTorch 2.5.0 with CUDA 12.4 (better Blackwell support)
-RUN pip3 install torch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 \
-    --index-url https://download.pytorch.org/whl/cu124
+# ⚡ SOLUTION 1: Install PyTorch 2.9.0 with CUDA 12.6 (Blackwell support)
+RUN pip3 install torch==2.9.0 torchvision==0.20.0 torchaudio==2.9.0 \
+    --index-url https://download.pytorch.org/whl/cu126
 
 # Verify PyTorch installation
 RUN python3 -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'CUDA Version: {torch.version.cuda}')"
