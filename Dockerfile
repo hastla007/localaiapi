@@ -41,33 +41,36 @@ RUN mkdir -p /app/models/flux/unet \
     /app/models/flux/clip
 
 # -----------------------------------------------------
-# Install Hugging Face Hub (with CLI available)
+# Install Hugging Face Hub and expose CLI
 # -----------------------------------------------------
 RUN pip install --no-cache-dir --upgrade "huggingface_hub[cli]"
 
+# Add the pip bin directory to PATH (needed for nvidia/cuda base images)
+ENV PATH="/usr/local/bin:$PATH"
+
 # -----------------------------------------------------
-# Download model weights using Python module (no PATH issues)
+# Download model weights
 # -----------------------------------------------------
 
 # Download Flux UNet weights
-RUN python3 -m huggingface_hub.hf_cli download black-forest-labs/FLUX.1-dev \
+RUN huggingface-cli download black-forest-labs/FLUX.1-dev \
     flux1-dev.safetensors \
     --local-dir /app/models/flux/unet \
     --local-dir-use-symlinks False
 
 # Download Flux VAE weights
-RUN python3 -m huggingface_hub.hf_cli download black-forest-labs/FLUX.1-dev \
+RUN huggingface-cli download black-forest-labs/FLUX.1-dev \
     ae.safetensors \
     --local-dir /app/models/flux/vae \
     --local-dir-use-symlinks False
 
 # Download CLIP text encoders (fp8 + CLIP-L)
-RUN python3 -m huggingface_hub.hf_cli download comfyanonymous/flux_text_encoders \
+RUN huggingface-cli download comfyanonymous/flux_text_encoders \
     clip_l.safetensors \
     --local-dir /app/models/flux/clip \
     --local-dir-use-symlinks False
 
-RUN python3 -m huggingface_hub.hf_cli download comfyanonymous/flux_text_encoders \
+RUN huggingface-cli download comfyanonymous/flux_text_encoders \
     t5xxl_fp8_e4m3fn.safetensors \
     --local-dir /app/models/flux/clip \
     --local-dir-use-symlinks False
