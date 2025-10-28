@@ -1,57 +1,57 @@
-FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
+# =====================================================
+# Optimized for RTX 5070 Ti (Blackwell, sm_120)
+# CUDA 12.8.0 + PyTorch Nightly + FastAPI / Uvicorn app
+# =====================================================
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-ENV PIP_NO_CACHE_DIR=1
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/root/.cache/huggingface \
+    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0" \
+    CUDA_LAUNCH_BLOCKING=0 \
+    TORCH_USE_CUDA_DSA=1 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-# CRITICAL: Set CUDA architecture for Blackwell (RTX 5070)
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0"
-ENV CUDA_LAUNCH_BLOCKING=0
-ENV TORCH_USE_CUDA_DSA=1
-
-# Install Python and system dependencies
-RUN apt-get update && apt-get install -y \
-    python3.10 \
-    python3-pip \
-    git \
-    wget \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv python3-dev \
+    git wget curl build-essential \
+    libgl1-mesa-glx libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip
-RUN pip3 install --upgrade pip setuptools wheel
+# Upgrade pip & core packaging tools
+RUN pip install --upgrade pip setuptools wheel
 
-# Set working directory
 WORKDIR /app
 
-# ⚡ SOLUTION 1: Install PyTorch 2.9.0 with CUDA 12.6 (Blackwell support)
-RUN pip3 install torch==2.9.0 torchvision==0.20.0 torchaudio==2.9.0 \
-    --index-url https://download.pytorch.org/whl/cu126
+# 🧠 Install nightly PyTorch with CUDA 12.8 support
+RUN pip3 install torch==2.9.0 torchvision==0.24.0 torchaudio==2.9.0 --index-url https://download.pytorch.org/whl/cu126
 
-# Verify PyTorch installation
-RUN python3 -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'CUDA Version: {torch.version.cuda}')"
 
-# Copy and install requirements (WITHOUT PyTorch - already installed)
+# Verify installation
+RUN python3 - <<'EOF'
+import torch
+print('='*60)
+print(f"PyTorch Version: {torch.__version__}")
+print(f"CUDA Runtime: {torch.version.cuda}")
+print(f"CUDA Available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"Compute Capability: {torch.cuda.get_device_capability(0)}")
+print('='*60)
+EOF
+
+# App dependencies
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Verify no downgrades happened
-RUN python3 -c "import torch; print(f'PyTorch after requirements: {torch.__version__}')"
-
-# Copy application code
 COPY main.py .
 COPY model_manager.py .
-
-# Create directories
-RUN mkdir -p /app/models /app/outputs /app/cache /app/templates
-
-# Copy templates
 COPY templates/ /app/templates/
 
-# Expose port
-EXPOSE 8000
+RUN mkdir -p /app/models /app/outputs /app/cache /app/templates
 
-# Run the application
+EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
