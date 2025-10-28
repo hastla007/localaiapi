@@ -3,6 +3,7 @@ import gc
 import time
 from typing import Dict, Any, Optional, Tuple
 import os
+import warnings
 
 # Import diffusers components
 from diffusers import (
@@ -143,14 +144,69 @@ class ModelManager:
         self.model_last_used: Dict[str, float] = {}
         self.max_loaded_models = int(os.getenv("MAX_LOADED_MODELS", max_loaded_models))
         self.model_timeout = int(os.getenv("MODEL_TIMEOUT", model_timeout))
-        
+
+        self.device = torch.device("cpu")
+        self.cuda_compatible = False
+        self.device_name = "CPU"
+        self.device_capability: Optional[Tuple[int, int]] = None
+
+        self._initialize_device()
+
         print(f"Model Manager initialized:")
         print(f"  Max loaded models: {self.max_loaded_models}")
         print(f"  Model timeout: {self.model_timeout}s")
         print(f"  GPU Available: {torch.cuda.is_available()}")
         if torch.cuda.is_available():
-            print(f"  GPU: {torch.cuda.get_device_name(0)}")
-            print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+            print(f"  GPU: {self.device_name}")
+            if self.device_capability:
+                major, minor = self.device_capability
+                print(f"  CUDA Capability: sm_{major}{minor}")
+            compatibility = "Yes" if self.cuda_compatible else "No (falling back to CPU)"
+            print(f"  Compatible with PyTorch build: {compatibility}")
+            if self.cuda_compatible:
+                print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+
+    def _initialize_device(self) -> None:
+        """Determine whether CUDA can be safely used with the current PyTorch build."""
+
+        if not torch.cuda.is_available():
+            return
+
+        try:
+            self.device_name = torch.cuda.get_device_name(0)
+        except Exception:
+            self.device_name = "Unknown CUDA Device"
+
+        try:
+            self.device_capability = torch.cuda.get_device_capability(0)
+        except Exception:
+            self.device_capability = None
+
+        try:
+            # Attempt to allocate a trivial tensor on the GPU. If this fails we fall back to CPU.
+            torch.zeros(1, device="cuda")
+        except Exception as exc:
+            warnings.warn(
+                "CUDA is available but incompatible with the current PyTorch build. "
+                "Falling back to CPU execution."
+                f" (error: {exc})"
+            )
+            return
+
+        self.device = torch.device("cuda")
+        self.cuda_compatible = True
+
+    def _select_dtype(self, preferred_dtype: torch.dtype) -> torch.dtype:
+        """Return a dtype that is safe for the current device."""
+
+        if self.cuda_compatible:
+            return preferred_dtype
+
+        # Many pipelines default to float16/bfloat16 for GPU usage. These dtypes are slower
+        # or unsupported on CPU, so we promote them to float32 when we cannot rely on CUDA.
+        if preferred_dtype in (torch.float16, torch.bfloat16):
+            return torch.float32
+        return preferred_dtype
     
     def _cleanup_old_models(self):
         if len(self.loaded_models) >= self.max_loaded_models:
@@ -168,27 +224,32 @@ class ModelManager:
         if model_key == "flux":
             if not FLUX_AVAILABLE:
                 raise ImportError("FluxPipeline not available")
-            pipe = FluxPipeline.from_pretrained(model_id, torch_dtype=torch.bfloat16, use_safetensors=True)
+            dtype = self._select_dtype(torch.bfloat16)
+            pipe = FluxPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True)
         elif model_key == "sdxl":
-            pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=torch.float16, use_safetensors=True, variant="fp16")
+            dtype = self._select_dtype(torch.float16)
+            pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True, variant="fp16")
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         elif model_key == "sd3":
-            pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=torch.float16, use_safetensors=True)
+            dtype = self._select_dtype(torch.float16)
+            pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True)
         elif model_key == "pony":
-            pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16, safety_checker=None)
+            dtype = self._select_dtype(torch.float16)
+            pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, safety_checker=None)
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         else:
             raise ValueError(f"Unknown text-to-image model: {model_key}")
-        
-        pipe.enable_model_cpu_offload()
-        pipe.enable_vae_slicing()
-        try:
-            pipe.enable_xformers_memory_efficient_attention()
-            print("  xformers enabled")
-        except:
-            pass
-        
-        pipe = pipe.to("cuda")
+
+        if self.cuda_compatible:
+            pipe.enable_model_cpu_offload()
+            pipe.enable_vae_slicing()
+            try:
+                pipe.enable_xformers_memory_efficient_attention()
+                print("  xformers enabled")
+            except Exception:
+                pass
+
+        pipe = pipe.to(self.device)
         print(f"  {model_info['name']} loaded successfully")
         return pipe
     
@@ -198,18 +259,21 @@ class ModelManager:
         
         print(f"Loading {model_info['name']} from {model_id}...")
         
+        device_map = "auto" if self.cuda_compatible else "cpu"
+        dtype = self._select_dtype(torch.float16)
+
         if model_key == "llava":
             processor = AutoProcessor.from_pretrained(model_id)
-            model = AutoModelForVision2Seq.from_pretrained(model_id, torch_dtype=torch.float16, device_map="auto")
+            model = AutoModelForVision2Seq.from_pretrained(model_id, torch_dtype=dtype, device_map=device_map)
         elif model_key == "blip2":
             processor = Blip2Processor.from_pretrained(model_id)
-            model = Blip2ForConditionalGeneration.from_pretrained(model_id, torch_dtype=torch.float16, device_map="auto")
+            model = Blip2ForConditionalGeneration.from_pretrained(model_id, torch_dtype=dtype, device_map=device_map)
         elif model_key == "qwen":
             processor = AutoProcessor.from_pretrained(model_id)
-            model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, torch_dtype=torch.float16, device_map="auto")
+            model = Qwen2VLForConditionalGeneration.from_pretrained(model_id, torch_dtype=dtype, device_map=device_map)
         else:
             raise ValueError(f"Unknown image-to-text model: {model_key}")
-        
+
         print(f"  {model_info['name']} loaded successfully")
         return model, processor
     
@@ -219,19 +283,23 @@ class ModelManager:
         
         print(f"Loading {model_info['name']} from {model_id}...")
         
+        dtype = self._select_dtype(torch.float16)
+
         if model_key == "svd":
-            pipe = StableVideoDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16, variant="fp16")
-            pipe.enable_model_cpu_offload()
-            
+            pipe = StableVideoDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, variant="fp16")
+            if self.cuda_compatible:
+                pipe.enable_model_cpu_offload()
+
         elif model_key == "animatediff":
             # AnimateDiff Lightning
-            adapter = MotionAdapter.from_pretrained("ByteDance/AnimateDiff-Lightning", torch_dtype=torch.float16)
+            adapter = MotionAdapter.from_pretrained("ByteDance/AnimateDiff-Lightning", torch_dtype=dtype)
             base_model = model_info.get("base_model", "emilianJR/epiCRealism")
-            pipe = AnimateDiffPipeline.from_pretrained(base_model, motion_adapter=adapter, torch_dtype=torch.float16)
+            pipe = AnimateDiffPipeline.from_pretrained(base_model, motion_adapter=adapter, torch_dtype=dtype)
             pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
-            pipe.enable_model_cpu_offload()
-            pipe.enable_vae_slicing()
-            
+            if self.cuda_compatible:
+                pipe.enable_model_cpu_offload()
+                pipe.enable_vae_slicing()
+
         elif model_key == "wan21":
             # WAN 2.1 proxy using CogVideoX (similar architecture)
             print("  ⚠️  WAN 2.1 Integration Note:")
@@ -241,23 +309,25 @@ class ModelManager:
             print("  → Or LightX2V framework: https://github.com/ModelTC/LightX2V")
             
             if COGVIDEO_AVAILABLE:
-                pipe = CogVideoXImageToVideoPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
+                pipe = CogVideoXImageToVideoPipeline.from_pretrained(model_id, torch_dtype=dtype)
                 print("  Using CogVideoX-5b-I2V (fast image-to-video)")
             else:
                 # Fallback to SVD
                 print("  CogVideoX not available, using SVD as fallback")
                 pipe = StableVideoDiffusionPipeline.from_pretrained(
                     "stabilityai/stable-video-diffusion-img2vid-xt",
-                    torch_dtype=torch.float16,
+                    torch_dtype=dtype,
                     variant="fp16"
                 )
-            
-            pipe.enable_model_cpu_offload()
-            pipe.enable_vae_slicing()
-            
+
+            if self.cuda_compatible:
+                pipe.enable_model_cpu_offload()
+                pipe.enable_vae_slicing()
+
         else:
             raise ValueError(f"Unknown video generation model: {model_key}")
-        
+
+        pipe = pipe.to(self.device)
         print(f"  {model_info['name']} loaded successfully")
         return pipe
     
@@ -267,22 +337,25 @@ class ModelManager:
         
         print(f"Loading {model_info['name']} from {model_id}...")
         
-        controlnet = ControlNetModel.from_pretrained(model_id, torch_dtype=torch.float16)
+        dtype = self._select_dtype(torch.float16)
+
+        controlnet = ControlNetModel.from_pretrained(model_id, torch_dtype=dtype)
         base_model_id = "stabilityai/stable-diffusion-xl-base-1.0"
         pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-            base_model_id, controlnet=controlnet, torch_dtype=torch.float16, variant="fp16"
+            base_model_id, controlnet=controlnet, torch_dtype=dtype, variant="fp16"
         )
-        
+
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
-        pipe.enable_model_cpu_offload()
-        pipe.enable_vae_slicing()
-        
-        try:
-            pipe.enable_xformers_memory_efficient_attention()
-        except:
-            pass
-        
-        pipe = pipe.to("cuda")
+        if self.cuda_compatible:
+            pipe.enable_model_cpu_offload()
+            pipe.enable_vae_slicing()
+
+            try:
+                pipe.enable_xformers_memory_efficient_attention()
+            except Exception:
+                pass
+
+        pipe = pipe.to(self.device)
         print(f"  {model_info['name']} loaded successfully")
         return pipe
     
@@ -311,7 +384,7 @@ class ModelManager:
         self.loaded_models[model_key] = model
         self.model_last_used[model_key] = time.time()
         
-        if torch.cuda.is_available():
+        if self.cuda_compatible:
             vram_used = torch.cuda.memory_allocated() / 1e9
             vram_cached = torch.cuda.memory_reserved() / 1e9
             print(f"  VRAM used: {vram_used:.2f} GB, cached: {vram_cached:.2f} GB")
@@ -324,8 +397,8 @@ class ModelManager:
             del self.loaded_models[model_key]
             del self.model_last_used[model_key]
             gc.collect()
-            torch.cuda.empty_cache()
-            if torch.cuda.is_available():
+            if self.cuda_compatible:
+                torch.cuda.empty_cache()
                 vram_used = torch.cuda.memory_allocated() / 1e9
                 print(f"  VRAM after unload: {vram_used:.2f} GB")
     
@@ -334,8 +407,8 @@ class ModelManager:
         self.loaded_models.clear()
         self.model_last_used.clear()
         gc.collect()
-        torch.cuda.empty_cache()
-        if torch.cuda.is_available():
+        if self.cuda_compatible:
+            torch.cuda.empty_cache()
             vram_used = torch.cuda.memory_allocated() / 1e9
             print(f"  VRAM after clearing all: {vram_used:.2f} GB")
     
