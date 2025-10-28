@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,6 +19,11 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt .
+
+# Install PyTorch with CUDA 12.6 support
+RUN pip3 install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+
+# Install other requirements
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy application code
@@ -27,8 +32,8 @@ COPY . .
 # Create directories for models, outputs, and templates
 RUN mkdir -p /app/models /app/outputs /app/cache /app/templates
 
-# Copy templates
-COPY templates/ /app/templates/
+# Copy templates if they exist
+COPY templates/ /app/templates/ 2>/dev/null || true
 
 # Expose port
 EXPOSE 8000
