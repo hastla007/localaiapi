@@ -216,7 +216,7 @@ Models are cached in `./cache` folder and persist between restarts.
 
 ```bash
 # Check if Docker can see GPU
-docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu22.04 nvidia-smi
 ```
 
 ### Port Already in Use

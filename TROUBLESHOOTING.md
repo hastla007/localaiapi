@@ -27,7 +27,7 @@ Common issues and solutions for the AI API.
    
 2. Test GPU in Docker:
    ```bash
-   docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+   docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu22.04 nvidia-smi
    ```
 
 3. Update NVIDIA drivers:
