@@ -1,72 +1,67 @@
-# Optimized Dockerfile for RTX 5070 Ti / CUDA 12.4.1 / PyTorch 2.4.x
-# Combines your original logic with a stable base image and fixes the heredoc syntax
-
+# =====================================================
+# Optimized for RTX 5070 Ti (Blackwell, sm_120)
+# CUDA 12.4.1 + PyTorch 2.4.x + FastAPI / Uvicorn app
+# =====================================================
 FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
 
-# Environment setup
+# Environment configuration
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HOME=/root/.cache/huggingface \
-    FORCE_CUDA=1 \
-    TORCH_CUDA_ARCH_LIST="12.0" \
+    TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0" \
+    CUDA_LAUNCH_BLOCKING=0 \
+    TORCH_USE_CUDA_DSA=1 \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-# Install only essentials (no PPA, no GPG headaches)
+# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev python3-venv \
     git wget curl build-essential \
     libgl1-mesa-glx libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Upgrade pip & core packaging tools
+RUN pip install --upgrade pip setuptools wheel
 
-
-# Install pip for Python 3.12
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
-
-# Make Python 3.12 the default
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
-
-# Verify Python and pip versions
-RUN python3 --version && pip3 --version
-
-# Upgrade core packaging tools
-RUN pip3 install --upgrade pip setuptools wheel
-
+# Set working directory
 WORKDIR /app
 
-# Ensure latest stable PyTorch 2.4.x CUDA 12.4 build
-RUN pip3 install --upgrade torch torchvision torchaudio \
+# Pre-install stable PyTorch (ensures CUDA 12.4 build)
+RUN pip install --upgrade torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu124
 
-# Verify PyTorch + GPU access
-RUN python3 << 'EOF'
+# Verify PyTorch and GPU visibility
+RUN python - <<'EOF'
 import torch
 print('='*60)
-print(f'PyTorch Version: {torch.__version__}')
-print(f'CUDA Available: {torch.cuda.is_available()}')
-print(f'CUDA Runtime: {getattr(torch.version, "cuda", "N/A")}')
-print('='*60)
-
+print(f"PyTorch Version: {torch.__version__}")
+print(f"CUDA Runtime: {torch.version.cuda}")
+print(f"CUDA Available: {torch.cuda.is_available()}")
 if torch.cuda.is_available():
-    print('\n🔍 GPU Detection Test:')
-    print(f'  GPU Name: {torch.cuda.get_device_name(0)}')
-    cap = torch.cuda.get_device_capability(0)
-    print(f'  Compute Capability: {cap[0]}.{cap[1]}')
-    if cap[0] == 12 and cap[1] == 0:
-        print('  ✅ Blackwell (sm_120) detected!')
-    print(f'  Total VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB')
-
-    print('\n🧪 Tensor Operations Test:')
-    x = torch.randn(1000, 1000, device='cuda')
-    y = torch.randn(1000, 1000, device='cuda')
-    z = torch.matmul(x, y)
-    print(f'  Tensor matmul result: {z.mean().item():.6f}')
-
-print('\n✅ PyTorch GPU test completed successfully!')
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"Compute Capability: {torch.cuda.get_device_capability(0)}")
+print('='*60)
 EOF
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["python3"]
+# Copy application dependencies (excluding PyTorch itself)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Verify PyTorch still correct (no downgrade)
+RUN python -c "import torch; print('Final PyTorch:', torch.__version__)"
+
+# Copy your application code
+COPY main.py .
+COPY model_manager.py .
+COPY templates/ /app/templates/
+
+# Create runtime directories
+RUN mkdir -p /app/models /app/outputs /app/cache /app/templates
+
+# Expose API port
+EXPOSE 8000
+
+# Default command — start FastAPI / Uvicorn app
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
