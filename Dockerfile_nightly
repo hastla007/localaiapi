@@ -1,119 +1,43 @@
-FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+# Stable PyTorch 2.4.x on CUDA 12.4 (cuDNN 9), optimized for RTX 50-series
+# Use the official PyTorch image that already bundles CUDA 12.4 runtime
+FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
 
-# Set environment variables
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-ENV PIP_NO_CACHE_DIR=1
-
-# Blackwell support
-ENV TORCH_CUDA_ARCH_LIST="12.0"
-ENV FORCE_CUDA=1
-
-# Install Python 3.12 properly
-RUN apt-get update && apt-get install -y \
-    software-properties-common \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update && apt-get install -y \
-    python3.12 \
-    python3.12-dev \
-    python3.12-venv \
-    git \
-    wget \
-    curl \
-    build-essential \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
+# System deps (minimal). Add dev tools only if you need to build native libs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget curl ca-certificates tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pip for Python 3.12 using get-pip.py
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12
+# Environment for reliability and HF cache
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/root/.cache/huggingface \
+    CUDA_HOME=/usr/local/cuda \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-# Create symlinks for python3
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+# Keep pip modern
+RUN python -m pip install --upgrade pip
 
-# Verify Python and pip
-RUN python3 --version && pip3 --version
+# Ensure we have the stable CUDA 12.4 wheels (even though the base image includes torch)
+# This guards against accidental downgrades/CPU-only installs from later layers.
+RUN pip install --upgrade --index-url https://download.pytorch.org/whl/cu124 \
+    torch torchvision torchaudio
 
-RUN pip3 install --upgrade pip setuptools wheel
+# (Optional) Common ML utilities — comment out if not needed
+# RUN pip install --no-cache-dir \
+#     numpy scipy pandas tqdm matplotlib \
+#     transformers accelerate datasets \
+#     lightning
 
-WORKDIR /app
+# Quick runtime verification
+RUN python - <<'PY'\n\
+import torch\n\
+print('Torch:', torch.__version__)\n\
+print('CUDA runtime:', getattr(torch.version, 'cuda', 'N/A'))\n\
+print('CUDA available:', torch.cuda.is_available())\n\
+print('Device:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A')\n\
+PY
 
-# Install PyTorch 2.9.0.dev nightly with CUDA 12.4
-RUN pip3 install --pre torch torchvision \
-    --index-url https://download.pytorch.org/whl/nightly/cu124
-
-# Verify PyTorch installation with comprehensive GPU tests
-RUN python3 << 'EOF'
-import torch
-print('='*60)
-print(f'PyTorch Version: {torch.__version__}')
-print(f'CUDA Available: {torch.cuda.is_available()}')
-print(f'CUDA Version: {torch.version.cuda}')
-print('='*60)
-
-if torch.cuda.is_available():
-    print('\n🔍 GPU Detection Test:')
-    print(f'  GPU Name: {torch.cuda.get_device_name(0)}')
-    cap = torch.cuda.get_device_capability(0)
-    print(f'  Compute Capability: {cap[0]}.{cap[1]}')
-    if cap[0] == 12 and cap[1] == 0:
-        print('  ✅ Blackwell (sm_120) detected!')
-    print(f'  Total VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB')
-    
-    print('\n🧪 Tensor Operations Test:')
-    try:
-        # Test 1: Basic tensor allocation
-        x = torch.randn(1000, 1000, device='cuda')
-        print('  ✅ Tensor allocation: SUCCESS')
-        
-        # Test 2: Matrix multiplication
-        y = torch.randn(1000, 1000, device='cuda')
-        z = torch.matmul(x, y)
-        print('  ✅ Matrix multiplication: SUCCESS')
-        
-        # Test 3: Convolution (critical for diffusion models)
-        conv = torch.nn.Conv2d(3, 64, 3, padding=1).cuda()
-        test_input = torch.randn(1, 3, 256, 256, device='cuda')
-        output = conv(test_input)
-        print('  ✅ Convolution: SUCCESS')
-        
-        # Test 4: Memory cleanup
-        del x, y, z, conv, test_input, output
-        torch.cuda.empty_cache()
-        print('  ✅ Memory cleanup: SUCCESS')
-        
-        print('\n🎉 All GPU tests passed! RTX 5070 Ti is ready!')
-    except Exception as e:
-        print(f'\n❌ GPU operations failed: {e}')
-        import traceback
-        traceback.print_exc()
-        exit(1)
-else:
-    print('\n❌ CUDA not available!')
-    exit(1)
-print('='*60)
-EOF
-
-# Copy and install requirements
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-# Verify PyTorch version wasn't downgraded
-RUN python3 -c "import torch; print(f'Final PyTorch: {torch.__version__}'); print(f'Torchvision: {__import__(\"torchvision\").__version__}')"
-
-# Copy application code
-COPY main.py .
-COPY model_manager.py .
-
-# Create directories
-RUN mkdir -p /app/models /app/outputs /app/cache /app/templates
-
-# Copy templates
-COPY templates/ /app/templates/
-
-# Expose port
-EXPOSE 8000
-
-# Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Default entry
+ENTRYPOINT [\"/usr/bin/tini\", \"--\"]\n\
+CMD [\"python\"]\n
