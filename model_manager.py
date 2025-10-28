@@ -10,7 +10,6 @@ from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusion3Pipeline,
     StableVideoDiffusionPipeline,
-    StableDiffusionPipeline,
     ControlNetModel,
     StableDiffusionXLControlNetPipeline,
     DPMSolverMultistepScheduler,
@@ -235,7 +234,11 @@ class ModelManager:
             pipe = StableDiffusion3Pipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True)
         elif model_key == "pony":
             dtype = self._select_dtype(torch.float16)
-            pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, safety_checker=None)
+            pipe = StableDiffusionXLPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                use_safetensors=True,
+            )
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         else:
             raise ValueError(f"Unknown text-to-image model: {model_key}")
