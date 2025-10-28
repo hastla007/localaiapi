@@ -1,9 +1,14 @@
-FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
+
+# CRITICAL: Set CUDA architecture for Blackwell (RTX 5070)
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0"
+ENV CUDA_LAUNCH_BLOCKING=0
+ENV TORCH_USE_CUDA_DSA=1
 
 # Install Python and system dependencies
 RUN apt-get update && apt-get install -y \
@@ -21,15 +26,14 @@ RUN pip3 install --upgrade pip setuptools wheel
 # Set working directory
 WORKDIR /app
 
-# ⚡ STEP 1: Install PyTorch FIRST with Blackwell support
-# Use nightly build for RTX 5070 (sm_120)
-RUN pip3 install --pre torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/nightly/cu126
+# ⚡ SOLUTION 1: Install PyTorch 2.5.0 with CUDA 12.4 (better Blackwell support)
+RUN pip3 install torch==2.5.0 torchvision==0.20.0 torchaudio==2.5.0 \
+    --index-url https://download.pytorch.org/whl/cu124
 
 # Verify PyTorch installation
-RUN python3 -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}')"
+RUN python3 -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}'); print(f'CUDA Version: {torch.version.cuda}')"
 
-# ⚡ STEP 2: Copy and install requirements (WITHOUT PyTorch pins)
+# Copy and install requirements (WITHOUT PyTorch - already installed)
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
