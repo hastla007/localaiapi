@@ -1,0 +1,66 @@
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+
+# CRITICAL: Force PyTorch to compile kernels for Blackwell
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0"
+ENV TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+ENV CUDA_LAUNCH_BLOCKING=0
+
+# Install Python and system dependencies including build tools
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    python3.10-dev \
+    git \
+    wget \
+    build-essential \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN pip3 install --upgrade pip setuptools wheel
+
+# Set working directory
+WORKDIR /app
+
+# ⚡ ALTERNATIVE: Install PyTorch nightly with explicit Blackwell support
+# This version compiles with the latest CUDA kernels
+RUN pip3 install --pre torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/nightly/cu124 \
+    --extra-index-url https://download.pytorch.org/whl/cu124
+
+# Verify PyTorch installation and GPU
+RUN python3 -c "import torch; \
+    print(f'PyTorch: {torch.__version__}'); \
+    print(f'CUDA Available: {torch.cuda.is_available()}'); \
+    print(f'CUDA Version: {torch.version.cuda}'); \
+    print(f'GPU Count: {torch.cuda.device_count()}'); \
+    if torch.cuda.is_available(): \
+        print(f'GPU Name: {torch.cuda.get_device_name(0)}'); \
+        print(f'Compute Capability: {torch.cuda.get_device_capability(0)}')"
+
+# Copy and install requirements
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY main.py .
+COPY model_manager.py .
+
+# Create directories
+RUN mkdir -p /app/models /app/outputs /app/cache /app/templates
+
+# Copy templates
+COPY templates/ /app/templates/
+
+# Expose port
+EXPOSE 8000
+
+# Run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
