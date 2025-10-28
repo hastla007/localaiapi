@@ -28,11 +28,7 @@ RUN pip install --upgrade pip setuptools wheel
 # Set working directory
 WORKDIR /app
 
-# Pre-install stable PyTorch (ensures CUDA 12.6 build)
-RUN pip install --upgrade torch==2.9.0 torchvision==0.20.0 torchaudio==2.9.0 \
-    --index-url https://download.pytorch.org/whl/cu126
-
-# Verify PyTorch and GPU visibility
+# ✅ PyTorch already installed in base image, just verify it
 RUN python - <<'EOF'
 import torch
 print('='*60)
@@ -45,7 +41,7 @@ if torch.cuda.is_available():
 print('='*60)
 EOF
 
-# Copy application dependencies (excluding PyTorch itself)
+# Copy application dependencies (excluding torch/torchvision/torchaudio)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
