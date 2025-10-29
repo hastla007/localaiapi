@@ -31,7 +31,7 @@ WORKDIR /app
 # -----------------------------------------------------
 # Install PyTorch with CUDA 12.4 (stable, Blackwell compatible)
 # -----------------------------------------------------
-RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
 
 # -----------------------------------------------------
 # Verify CUDA / PyTorch
