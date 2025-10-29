@@ -4,6 +4,10 @@
 # =====================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
+# Accept HuggingFace token as build argument
+ARG HF_TOKEN
+ENV HF_TOKEN=${HF_TOKEN}
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
