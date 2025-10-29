@@ -30,8 +30,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        HF_TOKEN: ${HF_TOKEN}  # ← CRITICAL: Pass token to build
     container_name: ai-api-local
     ports:
       - "8000:8000"
@@ -42,13 +40,14 @@ services:
       - ./templates:/app/templates
       - ./comfyui_workflows:/app/comfyui_workflows
       - ./comfyui_client.py:/app/comfyui_client.py
+    env_file:
+      - .env  # Loads HF_TOKEN for runtime
     environment:
       - HF_HOME=/app/cache
       - TRANSFORMERS_CACHE=/app/cache
       - CUDA_VISIBLE_DEVICES=0
       - MAX_LOADED_MODELS=2
       - MODEL_TIMEOUT=300
-      - HF_TOKEN=${HF_TOKEN}  # ← Use env variable
       - TORCH_CUDA_ARCH_LIST=8.0;8.6;8.9;9.0;12.0
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
       - CUDA_LAUNCH_BLOCKING=0
