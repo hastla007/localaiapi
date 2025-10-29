@@ -1,6 +1,6 @@
 # =====================================================
 # Optimized for RTX 5070 Ti (Blackwell, sm_120)
-# CUDA 12.8.0 + PyTorch Nightly + FastAPI / Uvicorn app
+# CUDA 12.8.0 + PyTorch Stable + FastAPI / Uvicorn app
 # =====================================================
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 
@@ -29,9 +29,9 @@ RUN pip install --upgrade pip setuptools wheel
 WORKDIR /app
 
 # -----------------------------------------------------
-# Install latest nightly PyTorch with CUDA 12.8 (Blackwell GPU support)
+# Install PyTorch with CUDA 12.4 (stable, Blackwell compatible)
 # -----------------------------------------------------
-RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
 # -----------------------------------------------------
 # Prepare model directories
@@ -45,7 +45,7 @@ RUN mkdir -p /app/models/flux/unet \
 # -----------------------------------------------------
 RUN pip install --no-cache-dir --upgrade "huggingface_hub[cli]"
 
-# Add the pip bin directory to PATH (needed for nvidia/cuda base images)
+# Add the pip bin directory to PATH (CRITICAL: must be before using CLI)
 ENV PATH="/usr/local/bin:$PATH"
 
 # -----------------------------------------------------
@@ -70,7 +70,7 @@ RUN huggingface-cli download comfyanonymous/flux_text_encoders \
     --local-dir /app/models/flux/clip \
     --local-dir-use-symlinks False
 
-RUN huggingface-cli download comfyanonymous/flux_text_encoders \
+RUN huggingface-cli download comfyanonymous/flux_text_encodors \
     t5xxl_fp8_e4m3fn.safetensors \
     --local-dir /app/models/flux/clip \
     --local-dir-use-symlinks False
