@@ -30,7 +30,7 @@ services:
   ai-api:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile_nightly
     container_name: ai-api-local
     ports:
       - "8000:8000"
