@@ -30,6 +30,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        HF_TOKEN: ${HF_TOKEN}  # ← CRITICAL: Pass token to build
     container_name: ai-api-local
     ports:
       - "8000:8000"
@@ -46,8 +48,7 @@ services:
       - CUDA_VISIBLE_DEVICES=0
       - MAX_LOADED_MODELS=2
       - MODEL_TIMEOUT=300
-      - HF_TOKEN=here_comes_api_key  # ← ADD THIS LINE
-      # Blackwell (RTX 5070 Ti) optimizations
+      - HF_TOKEN=${HF_TOKEN}  # ← Use env variable
       - TORCH_CUDA_ARCH_LIST=8.0;8.6;8.9;9.0;12.0
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:128
       - CUDA_LAUNCH_BLOCKING=0
@@ -61,6 +62,6 @@ services:
               count: all
               capabilities: [gpu]
     restart: unless-stopped
-    shm_size: '16gb'  # Increase shared memory for larger models
+    shm_size: '16gb'
     depends_on:
       - comfyui
