@@ -8,6 +8,10 @@ FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 ARG HF_TOKEN
 ENV HF_TOKEN=${HF_TOKEN}
 
+# DEBUG: Verify token is set (shows only first 10 chars for security)
+RUN echo "HF_TOKEN received: ${HF_TOKEN:0:10}..." && \
+    if [ -z "$HF_TOKEN" ]; then echo "ERROR: HF_TOKEN is empty!"; exit 1; fi
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
