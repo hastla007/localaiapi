@@ -1,210 +1,374 @@
 {
-  "last_node_id": 11,
-  "last_link_id": 12,
-  "nodes": [
-    {
-      "id": 1,
-      "type": "LoadImage",
-      "title": "WAN Image Loader",
-      "pos": [-540, -100],
-      "size": [210, 200],
-      "inputs": {},
-      "outputs": {
-        "IMAGE": {
-          "links": [1]
-        }
-      },
-      "properties": {
-        "image": "wan21_input.png",
-        "upload": false
-      }
+  "1": {
+    "inputs": {
+      "lora_name": "Wan21_AccVid_I2V_480P_14B_lora_rank32_fp16.safetensors",
+      "strength_model": 1.0000000000000002,
+      "model": [
+        "306",
+        0
+      ]
     },
-    {
-      "id": 2,
-      "type": "WAN2ModelLoader",
-      "title": "WAN Model Loader",
-      "pos": [-320, -260],
-      "size": [280, 200],
-      "inputs": {
-        "ckpt_name": "wan2.1_i2v.safetensors",
-        "vae_name": "",
-        "clip_name": "",
-        "lora_name": "lightx2v_v0.1_lora.safetensors",
-        "lora_strength": 1.0
-      },
-      "outputs": {
-        "MODEL": {
-          "links": [4]
-        }
-      }
-    },
-    {
-      "id": 3,
-      "type": "CLIPTextEncode",
-      "title": "WAN Prompt",
-      "pos": [-540, 160],
-      "size": [260, 180],
-      "inputs": {
-        "text": "smooth camera movement, high quality"
-      },
-      "outputs": {
-        "CONDITIONING": {
-          "links": [2]
-        }
-      }
-    },
-    {
-      "id": 4,
-      "type": "CLIPTextEncode",
-      "title": "WAN Negative Prompt",
-      "pos": [-540, 360],
-      "size": [260, 180],
-      "inputs": {
-        "text": ""
-      },
-      "outputs": {
-        "CONDITIONING": {
-          "links": [3]
-        }
-      }
-    },
-    {
-      "id": 5,
-      "type": "WAN2I2VSampler",
-      "title": "WAN Settings",
-      "pos": [-40, 60],
-      "size": [340, 260],
-      "inputs": {
-        "seed": 123456789,
-        "steps": 6,
-        "cfg": 1.5,
-        "num_frames": 49,
-        "fps": 24,
-        "width": 832,
-        "height": 480,
-        "strength": 1.0,
-        "sampler_name": "wan21_default"
-      },
-      "outputs": {
-        "VIDEO": {
-          "links": [5]
-        }
-      }
-    },
-    {
-      "id": 6,
-      "type": "SaveVideo",
-      "title": "WAN Video Output",
-      "pos": [360, 80],
-      "size": [280, 180],
-      "inputs": {
-        "filename_prefix": "wan21_lightx2v",
-        "format": "mp4",
-        "quality": 95,
-        "frame_rate": 24,
-        "separate_audio": false
-      },
-      "outputs": {}
-    },
-    {
-      "id": 7,
-      "type": "ResolutionSelector",
-      "title": "WAN Resolution",
-      "pos": [-260, 60],
-      "size": [200, 200],
-      "inputs": {
-        "mode": "auto",
-        "aspect_ratio": "auto"
-      },
-      "outputs": {
-        "WIDTH": {
-          "links": [6]
-        },
-        "HEIGHT": {
-          "links": [7]
-        }
-      }
-    },
-    {
-      "id": 8,
-      "type": "WAN2FrameInterpolator",
-      "title": "WAN Frame Interpolator",
-      "pos": [160, -160],
-      "size": [300, 200],
-      "inputs": {
-        "video": [5, 0],
-        "fps": 24,
-        "interpolation": 1
-      },
-      "outputs": {
-        "VIDEO": {
-          "links": [8]
-        }
-      }
-    },
-    {
-      "id": 9,
-      "type": "VideoMetadata",
-      "title": "WAN Metadata",
-      "pos": [160, 60],
-      "size": [240, 160],
-      "inputs": {
-        "prompt": [3, 0],
-        "negative": [4, 0],
-        "model_name": "wan21-lightx2v"
-      },
-      "outputs": {}
-    },
-    {
-      "id": 10,
-      "type": "FrameAverage",
-      "title": "WAN Frame Average",
-      "pos": [-40, -160],
-      "size": [300, 200],
-      "inputs": {
-        "video": [1, 0]
-      },
-      "outputs": {
-        "IMAGE": {
-          "links": [9]
-        }
-      }
-    },
-    {
-      "id": 11,
-      "type": "ColorMatching",
-      "title": "WAN Color Match",
-      "pos": [160, -360],
-      "size": [280, 200],
-      "inputs": {
-        "source": [10, 0],
-        "target": [1, 0]
-      },
-      "outputs": {
-        "IMAGE": {
-          "links": [10]
-        }
-      }
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
     }
-  ],
-  "links": [
-    [1, 1, 0, 5, 0],
-    [2, 3, 0, 5, 1],
-    [3, 4, 0, 5, 2],
-    [4, 2, 0, 5, 3],
-    [5, 5, 0, 6, 0],
-    [6, 7, 0, 5, 4],
-    [7, 7, 1, 5, 5],
-    [8, 8, 0, 6, 0],
-    [9, 10, 0, 11, 0],
-    [10, 11, 0, 8, 0],
-    [11, 1, 0, 10, 0],
-    [12, 5, 0, 9, 0]
-  ],
-  "groups": [],
-  "config": {},
-  "extra": {
-    "notes": "WAN 2.1 + LightX2V workflow template. Dynamic values updated by comfyui_client.py"
   },
-  "version": 0.9
+  "3": {
+    "inputs": {
+      "seed": 797608189392840,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "dpmpp_sde",
+      "scheduler": "beta",
+      "denoise": 1,
+      "model": [
+        "341",
+        0
+      ],
+      "positive": [
+        "50",
+        0
+      ],
+      "negative": [
+        "50",
+        1
+      ],
+      "latent_image": [
+        "50",
+        2
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "4": {
+    "inputs": {
+      "lora_name": "DetailEnhancerV1.safetensors",
+      "strength_model": 0.20000000000000004,
+      "model": [
+        "305",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "6": {
+    "inputs": {
+      "text": "the monk suddenly spins his staff in a wide arc, kicking up dust. he lunges forward with precision, eyes locked on the camera. his robes flare dramatically in the wind as he steps swiftly into a battle stance. natural fast motion. real life highly detailed video. the video showcases detailed skin, detailed face, detailed eyes, skin pores.\n",
+      "clip": [
+        "344",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "7": {
+    "inputs": {
+      "text": "eating, chewing, slowmo video, slow motion, bullet time effect, low quality video, worst quality, blurry, mutation, deformation, amputation, bad anatomy, high contrast, overexposed, oversaturated, garish colours, colour shift, colour change, camera flash, bright, deformed face, bad teeth, poor eyes, deformed eyes, aliasing, pixelation, anime, toon, manga, drawing, 色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很",
+      "clip": [
+        "344",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "8": {
+    "inputs": {
+      "samples": [
+        "3",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "30": {
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "FusionXi2v/FusionX-LightX",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Video Combine 🎥🅥🅗🅢"
+    }
+  },
+  "39": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "50": {
+    "inputs": {
+      "width": 1024,
+      "height": 576,
+      "length": 81,
+      "batch_size": 1,
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "7",
+        0
+      ],
+      "vae": [
+        "39",
+        0
+      ],
+      "start_image": [
+        "345",
+        1
+      ]
+    },
+    "class_type": "WanImageToVideo",
+    "_meta": {
+      "title": "WanImageToVideo"
+    }
+  },
+  "52": {
+    "inputs": {
+      "image": "armored-warrior-stands-stockcake.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image"
+    }
+  },
+  "54": {
+    "inputs": {
+      "shift": 8.000000000000002,
+      "model": [
+        "111",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "Shift"
+    }
+  },
+  "108": {
+    "inputs": {
+      "sage_attention": "auto",
+      "model": [
+        "4",
+        0
+      ]
+    },
+    "class_type": "PathchSageAttentionKJ",
+    "_meta": {
+      "title": "Patch Sage Attention KJ"
+    }
+  },
+  "111": {
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": [
+        "108",
+        0
+      ]
+    },
+    "class_type": "ModelPatchTorchSettings",
+    "_meta": {
+      "title": "Model Patch Torch Settings"
+    }
+  },
+  "300": {
+    "inputs": {
+      "lora_name": "Wan21_T2V_14B_lightx2v_cfg_step_distill_lora_rank32.safetensors",
+      "strength_model": 1.0000000000000002,
+      "model": [
+        "343",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "305": {
+    "inputs": {
+      "lora_name": "Wan14B_RealismBoost.safetensors",
+      "strength_model": 0.20000000000000004,
+      "model": [
+        "1",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "306": {
+    "inputs": {
+      "lora_name": "Wan2.1-Fun-14B-InP-MPS_reward_lora_comfy.safetensors",
+      "strength_model": 0.30000000000000004,
+      "model": [
+        "300",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoraLoaderModelOnly"
+    }
+  },
+  "330": {
+    "inputs": {
+      "method": "mvgd",
+      "strength": 0.4000000000000001,
+      "multithread": true,
+      "image_ref": [
+        "52",
+        0
+      ],
+      "image_target": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "ColorMatch",
+    "_meta": {
+      "title": "Color Match"
+    }
+  },
+  "331": {
+    "inputs": {
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "FusionXi2v/FusionX-LightX.cc",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "trim_to_audio": false,
+      "pingpong": false,
+      "save_output": true,
+      "images": [
+        "330",
+        0
+      ]
+    },
+    "class_type": "VHS_VideoCombine",
+    "_meta": {
+      "title": "Video Combine 🎥🅥🅗🅢"
+    }
+  },
+  "341": {
+    "inputs": {
+      "nag_scale": 11,
+      "nag_alpha": 0.25,
+      "nag_tau": 2.5,
+      "input_type": "default",
+      "model": [
+        "54",
+        0
+      ],
+      "conditioning": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "WanVideoNAG",
+    "_meta": {
+      "title": "WanVideoNAG"
+    }
+  },
+  "343": {
+    "inputs": {
+      "unet_name": "Wan2.1/wan2.1-i2v-14b-720p-q2_k.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  },
+  "344": {
+    "inputs": {
+      "clip_name": "umt5-xxl-encoder-Q8_0.gguf",
+      "type": "wan"
+    },
+    "class_type": "CLIPLoaderGGUF",
+    "_meta": {
+      "title": "CLIPLoader (GGUF)"
+    }
+  },
+  "345": {
+    "inputs": {
+      "empty_cache": true,
+      "gc_collect": true,
+      "unload_all_models": false,
+      "image_pass": [
+        "52",
+        0
+      ]
+    },
+    "class_type": "VRAM_Debug",
+    "_meta": {
+      "title": "VRAM Debug"
+    }
+  },
+  "346": {
+    "inputs": {
+      "empty_cache": true,
+      "gc_collect": true,
+      "unload_all_models": false,
+      "any_input": [
+        "331",
+        0
+      ]
+    },
+    "class_type": "VRAM_Debug",
+    "_meta": {
+      "title": "VRAM Debug"
+    }
+  },
+  "347": {
+    "inputs": {
+      "preview": "",
+      "source": [
+        "346",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Preview Any"
+    }
+  }
 }
