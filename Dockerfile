@@ -41,39 +41,24 @@ RUN mkdir -p /app/models/flux/unet \
     /app/models/flux/clip
 
 # -----------------------------------------------------
-# Install Hugging Face Hub and expose CLI
+# Install Hugging Face Hub
 # -----------------------------------------------------
-RUN pip install --no-cache-dir --upgrade "huggingface_hub[cli]"
-
-# Add the pip bin directory to PATH (CRITICAL: must be before using CLI)
-ENV PATH="/usr/local/bin:$PATH"
+RUN pip install --no-cache-dir --upgrade huggingface-hub
 
 # -----------------------------------------------------
-# Download model weights
+# Download model weights using Python (more reliable than CLI)
 # -----------------------------------------------------
 
 # Download Flux UNet weights
-RUN huggingface-cli download black-forest-labs/FLUX.1-dev \
-    flux1-dev.safetensors \
-    --local-dir /app/models/flux/unet \
-    --local-dir-use-symlinks False
+RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='black-forest-labs/FLUX.1-dev', filename='flux1-dev.safetensors', local_dir='/app/models/flux/unet', local_dir_use_symlinks=False)"
 
 # Download Flux VAE weights
-RUN huggingface-cli download black-forest-labs/FLUX.1-dev \
-    ae.safetensors \
-    --local-dir /app/models/flux/vae \
-    --local-dir-use-symlinks False
+RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='black-forest-labs/FLUX.1-dev', filename='ae.safetensors', local_dir='/app/models/flux/vae', local_dir_use_symlinks=False)"
 
 # Download CLIP text encoders (fp8 + CLIP-L)
-RUN huggingface-cli download comfyanonymous/flux_text_encoders \
-    clip_l.safetensors \
-    --local-dir /app/models/flux/clip \
-    --local-dir-use-symlinks False
+RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='comfyanonymous/flux_text_encoders', filename='clip_l.safetensors', local_dir='/app/models/flux/clip', local_dir_use_symlinks=False)"
 
-RUN huggingface-cli download comfyanonymous/flux_text_encodors \
-    t5xxl_fp8_e4m3fn.safetensors \
-    --local-dir /app/models/flux/clip \
-    --local-dir-use-symlinks False
+RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='comfyanonymous/flux_text_encoders', filename='t5xxl_fp8_e4m3fn.safetensors', local_dir='/app/models/flux/clip', local_dir_use_symlinks=False)"
 
 # -----------------------------------------------------
 # Verify CUDA / PyTorch
