@@ -107,14 +107,35 @@ class ComfyUIClient:
         return json.loads(json.dumps(self._workflow_cache[workflow_name]))
 
     @staticmethod
-    def _find_node(workflow: Dict[str, Any], title: str) -> Dict[str, Any]:
-        for node in workflow.get("nodes", []):
-            if node.get("title") == title:
-                return node
+    def _find_node_by_id(workflow: Dict[str, Any], node_id: str) -> Dict[str, Any]:
+        """Find node by its ID in API format workflow"""
+
+        if node_id not in workflow:
+            raise KeyError(f"Node ID '{node_id}' not found in workflow")
+        return workflow[node_id]
+
+    @staticmethod
+    def _find_node_by_title(workflow: Dict[str, Any], title: str) -> tuple[str, Dict[str, Any]]:
+        """Find node by title in API format workflow, returns (node_id, node)"""
+
+        for node_id, node in workflow.items():
+            if node.get("_meta", {}).get("title") == title:
+                return node_id, node
         raise KeyError(f"Node with title '{title}' not found in workflow")
 
-    def _set_node_input(self, workflow: Dict[str, Any], title: str, key: str, value: Any) -> None:
-        node = self._find_node(workflow, title)
+    @staticmethod
+    def _find_node_by_class(workflow: Dict[str, Any], class_type: str) -> tuple[str, Dict[str, Any]]:
+        """Find node by class_type in API format workflow, returns (node_id, node)"""
+
+        for node_id, node in workflow.items():
+            if node.get("class_type") == class_type:
+                return node_id, node
+        raise KeyError(f"Node with class_type '{class_type}' not found in workflow")
+
+    def _set_node_input(self, workflow: Dict[str, Any], node_id: str, key: str, value: Any) -> None:
+        """Set input value for a specific node by ID"""
+
+        node = self._find_node_by_id(workflow, node_id)
         node.setdefault("inputs", {})[key] = value
 
     # ------------------------------------------------------------------
@@ -237,31 +258,42 @@ class ComfyUIClient:
         """Run the WAN 2.1 + LightX2V workflow and return the saved video path."""
 
         prompt = (prompt or "smooth camera movement, high quality").strip()
-        target_width = 832 if image.width >= image.height else 480
-        target_height = 480 if image.width >= image.height else 832
+
+        # Resize image to match workflow expectations
+        target_width = 1024 if image.width >= image.height else 576
+        target_height = 576 if image.width >= image.height else 1024
         if image.width != target_width or image.height != target_height:
             image = image.resize((target_width, target_height))
 
         uploaded_name = await self.upload_image(image, filename="wan21_input.png")
 
         workflow = self._load_workflow_template("wan21_workflow.json")
-        self._set_node_input(workflow, "WAN Prompt", "text", prompt)
-        self._set_node_input(workflow, "WAN Negative Prompt", "text", "")
-        self._set_node_input(workflow, "WAN Image Loader", "image", uploaded_name)
-        image_node = self._find_node(workflow, "WAN Image Loader")
-        image_node.setdefault("properties", {})["image"] = uploaded_name
 
-        self._set_node_input(workflow, "WAN Settings", "num_frames", num_frames)
-        self._set_node_input(workflow, "WAN Settings", "steps", steps)
-        self._set_node_input(workflow, "WAN Settings", "cfg", guidance_scale)
-        self._set_node_input(workflow, "WAN Settings", "fps", fps)
-        self._set_node_input(workflow, "WAN Settings", "width", target_width)
-        self._set_node_input(workflow, "WAN Settings", "height", target_height)
+        # Update node inputs based on your actual workflow structure
+
+        # Node 52: LoadImage - set the uploaded image
+        self._set_node_input(workflow, "52", "image", uploaded_name)
+
+        # Node 6: Positive prompt
+        self._set_node_input(workflow, "6", "text", prompt)
+
+        # Node 7: Negative prompt (keep default or customize)
+        # self._set_node_input(workflow, "7", "text", "your negative prompt")
+
+        # Node 50: WanImageToVideo - main parameters
+        self._set_node_input(workflow, "50", "length", num_frames)
+        self._set_node_input(workflow, "50", "width", target_width)
+        self._set_node_input(workflow, "50", "height", target_height)
+
+        # Node 3: KSampler - sampling parameters
+        self._set_node_input(workflow, "3", "steps", steps)
+        self._set_node_input(workflow, "3", "cfg", guidance_scale)
         if seed is not None:
-            self._set_node_input(workflow, "WAN Settings", "seed", seed)
+            self._set_node_input(workflow, "3", "seed", seed)
 
-        self._set_node_input(workflow, "WAN Frame Interpolator", "fps", fps)
-        self._set_node_input(workflow, "WAN Video Output", "frame_rate", fps)
+        # Node 30 & 331: Video output FPS
+        self._set_node_input(workflow, "30", "frame_rate", fps)
+        self._set_node_input(workflow, "331", "frame_rate", fps)
 
         prompt_id = await self.queue_prompt(workflow)
         history = await self.wait_for_completion(prompt_id)
