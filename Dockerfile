@@ -29,7 +29,7 @@ RUN pip install --upgrade pip setuptools wheel
 WORKDIR /app
 
 # -----------------------------------------------------
-# Install PyTorch with CUDA 12.4 (stable, Blackwell compatible)
+# Install PyTorch with CUDA 12.8 (stable, Blackwell compatible)
 # -----------------------------------------------------
 RUN pip3 install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
 
