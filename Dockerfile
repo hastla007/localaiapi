@@ -53,16 +53,17 @@ RUN pip install --no-cache-dir --upgrade huggingface-hub
 # Download model weights using Python (more reliable than CLI)
 # -----------------------------------------------------
 
-# Download Flux UNet weights
-RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='black-forest-labs/FLUX.1-dev', filename='flux1-dev.safetensors', local_dir='/app/models/flux/unet', local_dir_use_symlinks=False)"
+# Download Flux UNet weights (with authentication)
+RUN python3 -c "from huggingface_hub import hf_hub_download; import os; hf_hub_download(repo_id='black-forest-labs/FLUX.1-dev', filename='flux1-dev.safetensors', local_dir='/app/models/flux/unet', local_dir_use_symlinks=False, token=os.getenv('HF_TOKEN'))"
 
-# Download Flux VAE weights
-RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='black-forest-labs/FLUX.1-dev', filename='ae.safetensors', local_dir='/app/models/flux/vae', local_dir_use_symlinks=False)"
+# Download Flux VAE weights (with authentication)
+RUN python3 -c "from huggingface_hub import hf_hub_download; import os; hf_hub_download(repo_id='black-forest-labs/FLUX.1-dev', filename='ae.safetensors', local_dir='/app/models/flux/vae', local_dir_use_symlinks=False, token=os.getenv('HF_TOKEN'))"
 
-# Download CLIP text encoders (fp8 + CLIP-L)
+# Download CLIP text encoders (no auth needed)
 RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='comfyanonymous/flux_text_encoders', filename='clip_l.safetensors', local_dir='/app/models/flux/clip', local_dir_use_symlinks=False)"
 
 RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download(repo_id='comfyanonymous/flux_text_encoders', filename='t5xxl_fp8_e4m3fn.safetensors', local_dir='/app/models/flux/clip', local_dir_use_symlinks=False)"
+
 
 # -----------------------------------------------------
 # Verify CUDA / PyTorch
