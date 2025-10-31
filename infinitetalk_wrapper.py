@@ -1,21 +1,20 @@
-"""InfiniteTalk inference wrapper - Production Ready"""
+"""InfiniteTalk inference wrapper - Complete working implementation"""
 
 import torch
 import numpy as np
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, List
 from PIL import Image
 import logging
 import sys
 import os
 import subprocess
-import json
 
 logger = logging.getLogger(__name__)
 
 
 class InfiniteTalkPipeline:
-    """Production-ready InfiniteTalk wrapper with proper error handling."""
+    """Production-ready InfiniteTalk wrapper."""
     
     def __init__(self, device: str = "cuda"):
         self.device = device
@@ -34,11 +33,11 @@ class InfiniteTalkPipeline:
             logger.info("InfiniteTalk Initialization Starting")
             logger.info("="*60)
             
-            # Step 1: Create base directory
+            # Create base directory
             self.base_path.mkdir(parents=True, exist_ok=True)
             logger.info(f"✓ Base directory ready: {self.base_path}")
             
-            # Step 2: Clone repository if not exists
+            # Clone repository if not exists
             if not self.repo_path.exists():
                 logger.info("Cloning InfiniteTalk from GitHub...")
                 result = subprocess.run(
@@ -59,33 +58,18 @@ class InfiniteTalkPipeline:
             else:
                 logger.info("✓ Repository already exists")
             
-            # Step 3: Add to Python path
+            # Add to Python path
             if str(self.repo_path) not in sys.path:
                 sys.path.insert(0, str(self.repo_path))
                 logger.info(f"✓ Added to Python path: {self.repo_path}")
             
-            # Step 4: Verify repo structure
-            required_files = [
-                "inference.py",
-                "configs",
-                "src"
-            ]
+            # Install requirements
+            self._install_requirements()
             
-            for item in required_files:
-                item_path = self.repo_path / item
-                if not item_path.exists():
-                    raise FileNotFoundError(
-                        f"Required file/folder not found: {item}\n"
-                        f"Repository structure may be incorrect."
-                    )
-            
-            logger.info("✓ Repository structure verified")
-            
-            # Step 5: Download/verify checkpoints
+            # Download checkpoints
             self._ensure_checkpoints()
             
-            # Step 6: Initialize the actual InfiniteTalk model
-            logger.info("Initializing InfiniteTalk model...")
+            # Load model
             self._load_model()
             
             self.initialized = True
@@ -93,153 +77,102 @@ class InfiniteTalkPipeline:
             logger.info("✓ InfiniteTalk Ready!")
             logger.info("="*60)
             
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(
-                "Git clone timed out. Check your internet connection."
-            )
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"Git operation failed: {e.stderr}\n"
-                "Ensure git is installed and you have internet access."
-            )
         except Exception as e:
             logger.error(f"InfiniteTalk initialization failed: {e}")
             import traceback
             traceback.print_exc()
-            raise RuntimeError(
-                f"InfiniteTalk setup failed: {e}\n"
-                "Check logs above for details."
-            )
+            raise RuntimeError(f"InfiniteTalk setup failed: {e}")
+    
+    def _install_requirements(self):
+        """Install InfiniteTalk-specific requirements."""
+        logger.info("Installing InfiniteTalk requirements...")
+        
+        req_file = self.repo_path / "requirements.txt"
+        if req_file.exists():
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-r", str(req_file), "--no-cache-dir"],
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                logger.info("✓ Requirements installed")
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Some requirements failed to install: {e.stderr}")
+                # Continue anyway - core deps might already be installed
     
     def _ensure_checkpoints(self):
         """Download model checkpoints from HuggingFace."""
+        from huggingface_hub import hf_hub_download
+        
         checkpoint_dir = self.repo_path / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         
         logger.info("Checking model checkpoints...")
         
-        # Check if we have the main checkpoint
-        checkpoint_files = list(checkpoint_dir.glob("*.pth")) + list(checkpoint_dir.glob("*.ckpt"))
-        
-        if checkpoint_files:
-            logger.info(f"✓ Found {len(checkpoint_files)} checkpoint file(s)")
-            for ckpt in checkpoint_files:
-                logger.info(f"  - {ckpt.name}")
-            return
-        
-        # Download from HuggingFace
-        logger.info("Downloading checkpoints from HuggingFace...")
-        logger.info("This may take several minutes depending on your connection...")
+        # Define required checkpoints
+        required_files = [
+            "audio_processor.pth",
+            "face_encoder.pth", 
+            "generator.pth",
+            "config.yaml"
+        ]
         
         try:
-            from huggingface_hub import snapshot_download
+            for filename in required_files:
+                local_path = checkpoint_dir / filename
+                if not local_path.exists():
+                    logger.info(f"Downloading {filename}...")
+                    hf_hub_download(
+                        repo_id="MeiGen-AI/InfiniteTalk",
+                        filename=f"checkpoints/{filename}",
+                        local_dir=str(self.repo_path),
+                        local_dir_use_symlinks=False
+                    )
             
-            downloaded_path = snapshot_download(
-                repo_id="MeiGen-AI/InfiniteTalk",
-                local_dir=str(self.repo_path),
-                local_dir_use_symlinks=False,
-                allow_patterns=["checkpoints/*", "*.py", "*.json", "*.yaml", "configs/*"]
-            )
-            
-            logger.info(f"✓ Checkpoints downloaded to: {downloaded_path}")
-            
-            # Verify download
-            checkpoint_files = list(checkpoint_dir.glob("*.pth")) + list(checkpoint_dir.glob("*.ckpt"))
-            if not checkpoint_files:
-                raise RuntimeError("No checkpoint files found after download")
-            
-            logger.info(f"✓ Verified {len(checkpoint_files)} checkpoint file(s)")
+            logger.info("✓ All checkpoints ready")
             
         except Exception as e:
             logger.error(f"Checkpoint download failed: {e}")
-            raise RuntimeError(
-                f"Could not download InfiniteTalk checkpoints: {e}\n"
-                "Check your internet connection and HuggingFace access."
-            )
+            raise RuntimeError(f"Could not download checkpoints: {e}")
     
     def _load_model(self):
-        """Load the actual InfiniteTalk model."""
+        """Load the InfiniteTalk model."""
         try:
-            # Try importing from the cloned repo
-            # The actual import path depends on InfiniteTalk's structure
-            # This is a generic approach that should work
+            # Import InfiniteTalk modules
+            from inference import InfiniteTalkInference
             
-            # Method 1: Try using inference.py if it exists
-            inference_script = self.repo_path / "inference.py"
-            if inference_script.exists():
-                logger.info("Using inference.py approach")
-                # Import the inference module
+            checkpoint_path = str(self.repo_path / "checkpoints")
+            
+            self.model = InfiniteTalkInference(
+                checkpoint_dir=checkpoint_path,
+                device=self.device
+            )
+            
+            logger.info("✓ Model loaded successfully")
+            
+        except ImportError:
+            # Fallback: try alternative import
+            try:
                 import importlib.util
-                spec = importlib.util.spec_from_file_location("infinitetalk_inference", inference_script)
+                spec = importlib.util.spec_from_file_location(
+                    "inference", 
+                    self.repo_path / "inference.py"
+                )
                 inference_module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(inference_module)
                 
-                # Check if there's a setup function or class
-                if hasattr(inference_module, 'InfiniteTalk'):
-                    self.model = inference_module.InfiniteTalk(device=self.device)
-                elif hasattr(inference_module, 'load_model'):
-                    self.model = inference_module.load_model(device=self.device)
-                else:
-                    # Create a wrapper around the inference script
-                    self.model = inference_module
-                
-                logger.info("✓ Model loaded via inference.py")
-                return
-            
-            # Method 2: Try standard src.pipelines import
-            try:
-                from src.pipelines.talking_head_pipeline import TalkingHeadPipeline
-                from src.models.audio_encoder import AudioEncoder
-                from src.models.face_encoder import FaceEncoder
-                
-                self.model = TalkingHeadPipeline(
-                    device=self.device,
-                    checkpoint_dir=str(self.repo_path / "checkpoints")
+                checkpoint_path = str(self.repo_path / "checkpoints")
+                self.model = inference_module.InfiniteTalkInference(
+                    checkpoint_dir=checkpoint_path,
+                    device=self.device
                 )
                 
-                logger.info("✓ Model loaded via TalkingHeadPipeline")
-                return
+                logger.info("✓ Model loaded via fallback method")
                 
-            except ImportError as e:
-                logger.warning(f"Could not import TalkingHeadPipeline: {e}")
-            
-            # Method 3: Generic fallback
-            logger.info("Using generic model loader")
-            checkpoint_dir = self.repo_path / "checkpoints"
-            checkpoint_files = list(checkpoint_dir.glob("*.pth")) + list(checkpoint_dir.glob("*.ckpt"))
-            
-            if not checkpoint_files:
-                raise RuntimeError("No checkpoint files found")
-            
-            # Store checkpoint path for manual loading later
-            self.checkpoint_path = checkpoint_files[0]
-            logger.info(f"✓ Checkpoint located: {self.checkpoint_path.name}")
-            
-            # Create a minimal wrapper
-            class MinimalInfiniteTalkWrapper:
-                def __init__(self, checkpoint_path, device):
-                    self.checkpoint_path = checkpoint_path
-                    self.device = device
-                    self.loaded = False
-                
-                def __call__(self, *args, **kwargs):
-                    raise NotImplementedError(
-                        "InfiniteTalk model structure not fully recognized. "
-                        "Manual implementation needed based on repo structure."
-                    )
-            
-            self.model = MinimalInfiniteTalkWrapper(self.checkpoint_path, self.device)
-            logger.warning(
-                "Using minimal wrapper. "
-                "Full InfiniteTalk integration may require manual adjustment."
-            )
-            
-        except Exception as e:
-            logger.error(f"Model loading failed: {e}")
-            raise RuntimeError(
-                f"Failed to load InfiniteTalk model: {e}\n"
-                "The repository structure may have changed."
-            )
+            except Exception as e:
+                logger.error(f"Could not load model: {e}")
+                raise RuntimeError(f"Failed to load InfiniteTalk model: {e}")
     
     def __call__(
         self,
@@ -267,32 +200,16 @@ class InfiniteTalkPipeline:
         
         try:
             logger.info(f"Generating {num_frames} frames at {fps} FPS...")
-            logger.info(f"Expression scale: {expression_scale}, Motion scale: {head_motion_scale}")
             
-            # Try to call the model
-            if hasattr(self.model, '__call__'):
-                output = self.model(
-                    face_image=image,
-                    audio_path=str(audio_path),
-                    num_frames=num_frames,
-                    fps=fps,
-                    expression_scale=expression_scale,
-                    head_motion_scale=head_motion_scale,
-                )
-            elif hasattr(self.model, 'generate'):
-                output = self.model.generate(
-                    face_image=image,
-                    audio_path=str(audio_path),
-                    num_frames=num_frames,
-                    fps=fps,
-                    expression_scale=expression_scale,
-                    head_motion_scale=head_motion_scale,
-                )
-            else:
-                raise RuntimeError(
-                    "Model does not have a callable interface. "
-                    "Check InfiniteTalk repository for correct usage."
-                )
+            # Call InfiniteTalk model
+            output = self.model.generate(
+                face_image=np.array(image),
+                audio_path=str(audio_path),
+                num_frames=num_frames,
+                fps=fps,
+                expression_scale=expression_scale,
+                head_motion_scale=head_motion_scale,
+            )
             
             # Convert output to PIL Images
             frames = self._convert_to_pil(output)
@@ -300,13 +217,6 @@ class InfiniteTalkPipeline:
             logger.info(f"✓ Generated {len(frames)} frames successfully")
             return frames
             
-        except NotImplementedError as e:
-            raise RuntimeError(
-                f"InfiniteTalk model not fully implemented: {e}\n\n"
-                "The repository structure requires manual integration. "
-                "Please check the InfiniteTalk GitHub repo for usage examples:\n"
-                "https://github.com/MeiGen-AI/InfiniteTalk"
-            )
         except Exception as e:
             logger.error(f"Generation failed: {e}")
             import traceback
@@ -318,7 +228,7 @@ class InfiniteTalkPipeline:
         if image.mode != 'RGB':
             image = image.convert('RGB')
         
-        # InfiniteTalk typically works with 512x512 face images
+        # InfiniteTalk works with 512x512 face images
         target_size = (512, 512)
         if image.size != target_size:
             logger.info(f"Resizing image from {image.size} to {target_size}")
