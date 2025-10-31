@@ -391,13 +391,13 @@ class ModelManager:
         dtype = self._select_dtype(torch.float16)
 
         try:
-            from diffusers import DiffusionPipeline
+            from diffusers import AutoPipelineForText2Video
 
-            pipe = DiffusionPipeline.from_pretrained(
+            pipe = AutoPipelineForText2Video.from_pretrained(
                 model_id,
                 torch_dtype=dtype,
-                use_safetensors=True,
                 trust_remote_code=True,
+                use_safetensors=True,
             )
 
             if self.cuda_compatible:
@@ -412,6 +412,8 @@ class ModelManager:
         except Exception as e:
             print(f"  Error loading InfiniteTalk: {str(e)}")
             print("  Attempting alternative loading method...")
+
+            from diffusers import DiffusionPipeline
 
             pipe = DiffusionPipeline.from_pretrained(
                 model_id,
