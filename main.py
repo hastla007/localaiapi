@@ -15,6 +15,8 @@ import base64
 from io import BytesIO
 from PIL import Image
 import numpy as np
+import asyncio
+import aiohttp
 
 # Import model managers
 from model_manager import ModelManager
@@ -32,6 +34,9 @@ templates = Jinja2Templates(directory="/app/templates")
 
 # Initialize model manager
 model_manager = ModelManager()
+
+# TTS configuration
+TTS_SERVER_URL = os.getenv("TTS_SERVER_URL", "http://10.120.2.5:4321/audio/speech/long")
 
 # ==================== METRICS & LOGGING ====================
 
@@ -79,6 +84,73 @@ class MetricsTracker:
 
 metrics_tracker = MetricsTracker()
 metrics_tracker.add_log("API started with AnimateDiff Lightning & WAN 2.1 (ultra-fast video generation)")
+
+# ==================== TTS INTEGRATION ====================
+
+async def text_to_speech(
+    text: str,
+    voice: str = "default",
+    cfg_weight: float = 1.0,
+    exaggeration: float = 1.0,
+    temperature: float = 0.7,
+    response_format: str = "wav"
+) -> bytes:
+    """Convert text to speech using local TTS server"""
+
+    payload = {
+        "input": text,
+        "voice": voice,
+        "cfg_weight": cfg_weight,
+        "exaggeration": exaggeration,
+        "response_format": response_format,
+        "temperature": temperature
+    }
+
+    metrics_tracker.add_log(f"Calling TTS server: {TTS_SERVER_URL}")
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                TTS_SERVER_URL,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=120)
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise Exception(f"TTS server error ({response.status}): {error_text}")
+
+                audio_bytes = await response.read()
+                metrics_tracker.add_log(f"TTS audio received: {len(audio_bytes)} bytes")
+                return audio_bytes
+
+    except aiohttp.ClientConnectorError:
+        raise Exception(f"Cannot connect to TTS server at {TTS_SERVER_URL}. Check network/firewall.")
+    except asyncio.TimeoutError:
+        raise Exception("TTS server timeout. Text might be too long.")
+    except Exception as e:
+        raise Exception(f"TTS generation failed: {str(e)}")
+
+
+@app.get("/api/tts/status")
+async def tts_status():
+    """Check TTS server availability"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                TTS_SERVER_URL.replace('/audio/speech/long', '/'),
+                timeout=aiohttp.ClientTimeout(total=5)
+            ) as response:
+                return {
+                    "available": True,
+                    "url": TTS_SERVER_URL,
+                    "status_code": response.status
+                }
+    except Exception as e:
+        return {
+            "available": False,
+            "url": TTS_SERVER_URL,
+            "error": str(e)
+        }
 
 # ==================== REQUEST MODELS ====================
 
