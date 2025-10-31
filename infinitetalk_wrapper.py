@@ -3,6 +3,7 @@
 import torch
 import subprocess
 import tempfile
+import json
 from pathlib import Path
 from typing import Optional, List
 from PIL import Image
@@ -115,7 +116,8 @@ class InfiniteTalkPipeline:
                         [
                             "huggingface-cli", "download",
                             repo_id,
-                            "--local-dir", str(local_dir)
+                            "--local-dir", str(local_dir),
+                            "--local-dir-use-symlinks", "False"
                         ],
                         check=True,
                         capture_output=True,
@@ -142,75 +144,68 @@ class InfiniteTalkPipeline:
         **kwargs
     ) -> List[Image.Image]:
         """Generate talking head video using InfiniteTalk CLI."""
-        
+
         # Ensure initialized
         self._ensure_installed()
-        
+
         # Validate inputs
         audio_path = Path(audio_path)
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
-        
+
         # Create temporary directories
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            
+
             # Save input image
             input_image_path = temp_path / "input_face.png"
             image = self._preprocess_image(image)
             image.save(input_image_path)
-            
+
+            # Create input JSON for InfiniteTalk
+            input_json_path = temp_path / "input.json"
+            input_json = {
+                "prompt": "high quality talking head video",
+                "cond_video": str(input_image_path),
+                "cond_audio": {
+                    "person1": str(audio_path)
+                },
+                "audio_type": "para"
+            }
+
+            with open(input_json_path, 'w') as f:
+                json.dump(input_json, f)
+
+            # Prepare output path
+            output_base = temp_path / "output"
+
             # Run InfiniteTalk generation
             logger.info(f"Running InfiniteTalk with {num_frames} frames at {fps} FPS...")
 
             weights_dir = self.base_path / "weights"
 
-            inference_script = self.repo_path / "inference.py"
+            # Find the actual inference script
+            inference_script = self.repo_path / "generate_infinitetalk.py"
             if not inference_script.exists():
-                inference_script = self.repo_path / "demo.py"
-            if not inference_script.exists():
-                raise FileNotFoundError("InfiniteTalk inference script not found")
+                raise FileNotFoundError(f"InfiniteTalk script not found at {inference_script}")
 
-            infinitetalk_weights_dir = weights_dir / "InfiniteTalk"
-            safetensor_path = None
-            if infinitetalk_weights_dir.exists():
-                preferred_paths = [
-                    infinitetalk_weights_dir / "single" / "infinitetalk.safetensors",
-                    infinitetalk_weights_dir / "infinitetalk.safetensors",
-                ]
-                for candidate in preferred_paths:
-                    if candidate.exists():
-                        safetensor_path = candidate
-                        break
-
-                if safetensor_path is None:
-                    for candidate in infinitetalk_weights_dir.rglob("*.safetensors"):
-                        safetensor_path = candidate
-                        break
-            if safetensor_path is None:
-                raise FileNotFoundError(
-                    "Could not locate InfiniteTalk safetensors weights under"
-                    f" {infinitetalk_weights_dir}"
-                )
-
-            model_path = safetensor_path
-            logger.info(f"Using InfiniteTalk model weights: {model_path}")
-
-            output_video = temp_path / "output.mp4"
-
+            # Build command with correct arguments
             cmd = [
-                "python",
-                str(inference_script),
-                "--model_path",
-                str(model_path),
-                "--face_image",
-                str(input_image_path),
-                "--audio_path",
-                str(audio_path),
-                "--output_path",
-                str(output_video)
+                "python", str(inference_script),
+                "--task", "infinitetalk-14B",
+                "--size", "infinitetalk-480",
+                "--ckpt_dir", str(weights_dir / "Wan2.1-I2V-14B-480P"),
+                "--infinitetalk_dir", str(weights_dir / "InfiniteTalk"),
+                "--wav2vec_dir", str(weights_dir / "chinese-wav2vec2-base"),
+                "--input_json", str(input_json_path),
+                "--save_file", str(output_base),
+                "--audio_mode", "localfile",
+                "--mode", "clip",
+                "--frame_num", str(num_frames),
+                "--sample_steps", "40",
+                "--motion_frame", "9"
             ]
-            
+
             try:
                 result = subprocess.run(
                     cmd,
@@ -219,29 +214,29 @@ class InfiniteTalkPipeline:
                     timeout=600,
                     cwd=str(self.repo_path)
                 )
-                
+
                 if result.returncode != 0:
                     logger.error(f"InfiniteTalk failed: {result.stderr}")
                     raise RuntimeError(f"InfiniteTalk generation failed: {result.stderr}")
-                
+
                 logger.info("✓ InfiniteTalk generation complete")
-                
-                # Find output video
-                output_video = temp_path / "output.mp4"
+
+                # Find output video (script adds .mp4 extension)
+                output_video = Path(f"{output_base}.mp4")
                 if not output_video.exists():
-                    # Try alternative output names
+                    # Try alternative patterns
                     possible_outputs = list(temp_path.glob("*.mp4"))
                     if possible_outputs:
                         output_video = possible_outputs[0]
                     else:
                         raise FileNotFoundError("InfiniteTalk did not produce output video")
-                
+
                 # Extract frames from video
                 frames = self._extract_frames(output_video, num_frames)
-                
+
                 logger.info(f"✓ Extracted {len(frames)} frames")
                 return frames
-                
+
             except subprocess.TimeoutExpired:
                 raise RuntimeError("InfiniteTalk generation timed out (>10 minutes)")
             except Exception as e:
