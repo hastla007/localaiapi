@@ -136,6 +136,16 @@ class WAN21Request(BaseModel):
     fps: Optional[int] = Field(24, ge=16, le=30)
     seed: Optional[int] = Field(None)
 
+class InfiniteTalkRequest(BaseModel):
+    face_image: str = Field(..., description="Base64 encoded face image")
+    audio: Optional[str] = Field(None, description="Base64 encoded audio file (WAV/MP3)")
+    text: Optional[str] = Field(None, description="Text to synthesize speech (if no audio)")
+    num_frames: Optional[int] = Field(120, ge=30, le=300, description="Video length in frames")
+    fps: Optional[int] = Field(25, ge=15, le=30)
+    expression_scale: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="Expression intensity")
+    head_motion_scale: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="Head movement intensity")
+    seed: Optional[int] = Field(None)
+
 # ==================== HELPER FUNCTIONS ====================
 
 def save_image(image: Image.Image, prefix: str = "generated") -> str:
@@ -693,6 +703,76 @@ async def generate_video_wan21(request: WAN21Request):
     except Exception as e:
         metrics_tracker.add_log(f"ERROR in WAN 2.1: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/talking-head/infinitetalk")
+async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
+    """Generate a talking head video using InfiniteTalk."""
+
+    try:
+        metrics_tracker.add_log("InfiniteTalk generation started")
+        start_time = time.time()
+
+        face_image = decode_base64_image(request.face_image)
+
+        audio_input = None
+        if request.audio:
+            audio_data = request.audio.split(",", maxsplit=1)[1] if "," in request.audio else request.audio
+            audio_bytes = base64.b64decode(audio_data)
+            audio_path = Path("/app/outputs") / f"temp_audio_{int(time.time())}.wav"
+            with open(audio_path, "wb") as audio_file:
+                audio_file.write(audio_bytes)
+            audio_input = str(audio_path)
+
+        pipe = model_manager.load_model("infinitetalk", "talking-head")
+
+        generator = None
+        if request.seed is not None:
+            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+
+        generation_params: Dict[str, Any] = {
+            "image": face_image,
+            "num_frames": request.num_frames,
+            "fps": request.fps,
+            "expression_scale": request.expression_scale,
+            "head_motion_scale": request.head_motion_scale,
+            "generator": generator,
+        }
+
+        if audio_input:
+            generation_params["audio_path"] = audio_input
+        elif request.text:
+            generation_params["text"] = request.text
+        else:
+            raise HTTPException(status_code=400, detail="Either 'audio' or 'text' must be provided")
+
+        output = pipe(**generation_params)
+        frames = output.frames[0] if hasattr(output, "frames") else output
+
+        video_path = save_video(frames, "infinitetalk", request.fps)
+
+        if audio_input and Path(audio_input).exists():
+            Path(audio_input).unlink()
+
+        generation_time = time.time() - start_time
+        metrics_tracker.log_request("infinitetalk", generation_time, "talking-head")
+
+        return JSONResponse({
+            "success": True,
+            "model": "infinitetalk",
+            "video_path": video_path,
+            "num_frames": request.num_frames,
+            "fps": request.fps,
+            "generation_time": round(generation_time, 2),
+            "input_type": "audio" if audio_input else "text",
+            "parameters": request.dict(exclude={"face_image", "audio"}),
+        })
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        metrics_tracker.add_log(f"ERROR in InfiniteTalk: {str(exc)}")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/api/comfyui/status")
