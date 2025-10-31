@@ -4,7 +4,6 @@ import torch
 import subprocess
 import json
 import tempfile
-import shutil
 from pathlib import Path
 from typing import Optional, List
 from PIL import Image
@@ -178,11 +177,29 @@ class InfiniteTalkPipeline:
             
             weights_dir = self.base_path / "weights"
             
+            inference_script = self.repo_path / "inference.py"
+            if not inference_script.exists():
+                inference_script = self.repo_path / "demo.py"
+            if not inference_script.exists():
+                raise FileNotFoundError("InfiniteTalk inference script not found")
+
+            infinitetalk_weights_dir = weights_dir / "InfiniteTalk"
+            safetensor_path = None
+            if infinitetalk_weights_dir.exists():
+                for candidate in infinitetalk_weights_dir.rglob("*.safetensors"):
+                    safetensor_path = candidate
+                    break
+            if safetensor_path is None:
+                raise FileNotFoundError(
+                    "Could not locate InfiniteTalk safetensors weights under"
+                    f" {infinitetalk_weights_dir}"
+                )
+
             cmd = [
-                "python", str(self.repo_path / "generate_infinitetalk.py"),
+                "python", str(inference_script),
                 "--ckpt_dir", str(weights_dir / "Wan2.1-I2V-14B-480P"),
                 "--wav2vec_dir", str(weights_dir / "chinese-wav2vec2-base"),
-                "--infinitetalk_dir", str(weights_dir / "InfiniteTalk/single/infinitetalk.safetensors"),
+                "--infinitetalk_dir", str(safetensor_path),
                 "--input_json", str(input_json_path),
                 "--size", "infinitetalk-480",
                 "--sample_steps", "40",
