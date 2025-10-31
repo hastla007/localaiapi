@@ -390,20 +390,41 @@ class ModelManager:
 
         dtype = self._select_dtype(torch.float16)
 
-        pipe = DiffusionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=dtype,
-            use_safetensors=True,
-        )
+        try:
+            from diffusers import DiffusionPipeline
 
-        if self.cuda_compatible:
-            pipe.enable_model_cpu_offload()
-            if hasattr(pipe, "enable_vae_slicing"):
-                pipe.enable_vae_slicing()
+            pipe = DiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                use_safetensors=True,
+                trust_remote_code=True,
+            )
 
-        pipe = pipe.to(self.device)
-        print(f"  {model_info['name']} loaded successfully")
-        return pipe
+            if self.cuda_compatible:
+                pipe.enable_model_cpu_offload()
+                if hasattr(pipe, "enable_vae_slicing"):
+                    pipe.enable_vae_slicing()
+
+            pipe = pipe.to(self.device)
+            print(f"  {model_info['name']} loaded successfully")
+            return pipe
+
+        except Exception as e:
+            print(f"  Error loading InfiniteTalk: {str(e)}")
+            print("  Attempting alternative loading method...")
+
+            pipe = DiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                trust_remote_code=True,
+            )
+
+            if self.cuda_compatible:
+                pipe.enable_model_cpu_offload()
+
+            pipe = pipe.to(self.device)
+            print(f"  {model_info['name']} loaded successfully (fallback method)")
+            return pipe
 
     def _load_controlnet_model(self, model_key: str):
         model_info = self.AVAILABLE_MODELS[model_key]

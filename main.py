@@ -17,6 +17,7 @@ from PIL import Image
 import numpy as np
 import asyncio
 import aiohttp
+import traceback
 
 # Import model managers
 from model_manager import ModelManager
@@ -787,14 +788,40 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
 
         face_image = decode_base64_image(request.face_image)
 
-        audio_input = None
+        audio_path: Optional[Path] = None
         if request.audio:
             audio_data = request.audio.split(",", maxsplit=1)[1] if "," in request.audio else request.audio
             audio_bytes = base64.b64decode(audio_data)
             audio_path = Path("/app/outputs") / f"temp_audio_{int(time.time())}.wav"
             with open(audio_path, "wb") as audio_file:
                 audio_file.write(audio_bytes)
-            audio_input = str(audio_path)
+
+        elif request.text:
+            metrics_tracker.add_log(f"Generating speech from text: {request.text[:50]}...")
+            try:
+                audio_bytes = await text_to_speech(
+                    text=request.text,
+                    voice="default",
+                    response_format="wav",
+                )
+
+                audio_path = Path("/app/outputs") / f"temp_tts_{int(time.time())}.wav"
+                with open(audio_path, "wb") as audio_file:
+                    audio_file.write(audio_bytes)
+
+                metrics_tracker.add_log(f"TTS audio generated: {audio_path}")
+
+            except Exception as tts_error:
+                metrics_tracker.add_log(f"TTS failed: {str(tts_error)}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"TTS generation failed: {str(tts_error)}. Check TTS server at {TTS_SERVER_URL}",
+                )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'audio' or 'text' must be provided",
+            )
 
         pipe = model_manager.load_model("infinitetalk", "talking-head")
 
@@ -802,29 +829,29 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
         if request.seed is not None:
             generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
 
-        generation_params: Dict[str, Any] = {
-            "image": face_image,
-            "num_frames": request.num_frames,
-            "fps": request.fps,
-            "expression_scale": request.expression_scale,
-            "head_motion_scale": request.head_motion_scale,
-            "generator": generator,
-        }
+        metrics_tracker.add_log("Running InfiniteTalk pipeline...")
 
-        if audio_input:
-            generation_params["audio_path"] = audio_input
-        elif request.text:
-            generation_params["text"] = request.text
+        output = pipe(
+            image=face_image,
+            audio_path=str(audio_path),
+            num_frames=request.num_frames,
+            fps=request.fps,
+            expression_scale=request.expression_scale,
+            head_motion_scale=request.head_motion_scale,
+            generator=generator,
+        )
+
+        if hasattr(output, "frames"):
+            frames = output.frames[0]
+        elif isinstance(output, list):
+            frames = output
         else:
-            raise HTTPException(status_code=400, detail="Either 'audio' or 'text' must be provided")
-
-        output = pipe(**generation_params)
-        frames = output.frames[0] if hasattr(output, "frames") else output
+            frames = [output]
 
         video_path = save_video(frames, "infinitetalk", request.fps)
 
-        if audio_input and Path(audio_input).exists():
-            Path(audio_input).unlink()
+        if audio_path and audio_path.exists():
+            audio_path.unlink()
 
         generation_time = time.time() - start_time
         metrics_tracker.log_request("infinitetalk", generation_time, "talking-head")
@@ -836,7 +863,7 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
             "num_frames": request.num_frames,
             "fps": request.fps,
             "generation_time": round(generation_time, 2),
-            "input_type": "audio" if audio_input else "text",
+            "input_type": "audio" if request.audio else "text",
             "parameters": request.dict(exclude={"face_image", "audio"}),
         })
 
@@ -844,7 +871,8 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
         raise
     except Exception as exc:
         metrics_tracker.add_log(f"ERROR in InfiniteTalk: {str(exc)}")
-        raise HTTPException(status_code=500, detail=str(exc))
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"InfiniteTalk generation failed: {str(exc)}")
 
 
 @app.get("/api/comfyui/status")
