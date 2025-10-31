@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Optional, List
 from PIL import Image
 import logging
+import sys
+import os
+import subprocess
 
 logger = logging.getLogger(__name__)
 
