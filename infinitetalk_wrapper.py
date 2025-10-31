@@ -2,7 +2,6 @@
 
 import torch
 import subprocess
-import json
 import tempfile
 from pathlib import Path
 from typing import Optional, List
@@ -161,22 +160,11 @@ class InfiniteTalkPipeline:
             image = self._preprocess_image(image)
             image.save(input_image_path)
             
-            # Create input JSON for InfiniteTalk
-            input_json_path = temp_path / "input.json"
-            input_json = {
-                "image_path": str(input_image_path),
-                "audio_path": str(audio_path),
-                "output_path": str(temp_path / "output.mp4")
-            }
-            
-            with open(input_json_path, 'w') as f:
-                json.dump(input_json, f)
-            
             # Run InfiniteTalk generation
             logger.info(f"Running InfiniteTalk with {num_frames} frames at {fps} FPS...")
-            
+
             weights_dir = self.base_path / "weights"
-            
+
             inference_script = self.repo_path / "inference.py"
             if not inference_script.exists():
                 inference_script = self.repo_path / "demo.py"
@@ -186,26 +174,41 @@ class InfiniteTalkPipeline:
             infinitetalk_weights_dir = weights_dir / "InfiniteTalk"
             safetensor_path = None
             if infinitetalk_weights_dir.exists():
-                for candidate in infinitetalk_weights_dir.rglob("*.safetensors"):
-                    safetensor_path = candidate
-                    break
+                preferred_paths = [
+                    infinitetalk_weights_dir / "single" / "infinitetalk.safetensors",
+                    infinitetalk_weights_dir / "infinitetalk.safetensors",
+                ]
+                for candidate in preferred_paths:
+                    if candidate.exists():
+                        safetensor_path = candidate
+                        break
+
+                if safetensor_path is None:
+                    for candidate in infinitetalk_weights_dir.rglob("*.safetensors"):
+                        safetensor_path = candidate
+                        break
             if safetensor_path is None:
                 raise FileNotFoundError(
                     "Could not locate InfiniteTalk safetensors weights under"
                     f" {infinitetalk_weights_dir}"
                 )
 
+            model_path = safetensor_path
+            logger.info(f"Using InfiniteTalk model weights: {model_path}")
+
+            output_video = temp_path / "output.mp4"
+
             cmd = [
-                "python", str(inference_script),
-                "--ckpt_dir", str(weights_dir / "Wan2.1-I2V-14B-480P"),
-                "--wav2vec_dir", str(weights_dir / "chinese-wav2vec2-base"),
-                "--infinitetalk_dir", str(safetensor_path),
-                "--input_json", str(input_json_path),
-                "--size", "infinitetalk-480",
-                "--sample_steps", "40",
-                "--mode", "streaming",
-                "--motion_frame", "9",
-                "--save_file", str(temp_path / "output")
+                "python",
+                str(inference_script),
+                "--model_path",
+                str(model_path),
+                "--face_image",
+                str(input_image_path),
+                "--audio_path",
+                str(audio_path),
+                "--output_path",
+                str(output_video)
             ]
             
             try:
