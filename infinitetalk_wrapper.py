@@ -1,7 +1,10 @@
-"""InfiniteTalk inference wrapper - Complete working implementation"""
+"""InfiniteTalk inference wrapper - Subprocess-based implementation for real InfiniteTalk"""
 
 import torch
-import numpy as np
+import subprocess
+import json
+import tempfile
+import shutil
 from pathlib import Path
 from typing import Optional, List
 from PIL import Image
@@ -14,11 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 class InfiniteTalkPipeline:
-    """Production-ready InfiniteTalk wrapper."""
+    """Production-ready InfiniteTalk wrapper using subprocess calls."""
     
     def __init__(self, device: str = "cuda"):
         self.device = device
-        self.model = None
         self.base_path = Path("/app/models/infinitetalk")
         self.repo_path = self.base_path / "InfiniteTalk"
         self.initialized = False
@@ -58,19 +60,11 @@ class InfiniteTalkPipeline:
             else:
                 logger.info("✓ Repository already exists")
             
-            # Add to Python path
-            if str(self.repo_path) not in sys.path:
-                sys.path.insert(0, str(self.repo_path))
-                logger.info(f"✓ Added to Python path: {self.repo_path}")
-            
             # Install requirements
             self._install_requirements()
             
-            # Download checkpoints
+            # Download model checkpoints
             self._ensure_checkpoints()
-            
-            # Load model
-            self._load_model()
             
             self.initialized = True
             logger.info("="*60)
@@ -91,88 +85,52 @@ class InfiniteTalkPipeline:
         if req_file.exists():
             try:
                 subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "-r", str(req_file), "--no-cache-dir"],
+                    ["pip", "install", "-r", str(req_file), "--break-system-packages"],
                     check=True,
                     capture_output=True,
-                    text=True
+                    text=True,
+                    cwd=str(self.repo_path)
                 )
                 logger.info("✓ Requirements installed")
             except subprocess.CalledProcessError as e:
-                logger.warning(f"Some requirements failed to install: {e.stderr}")
-                # Continue anyway - core deps might already be installed
+                logger.warning(f"Some requirements failed: {e.stderr}")
     
     def _ensure_checkpoints(self):
-        """Download model checkpoints from HuggingFace."""
-        from huggingface_hub import hf_hub_download
+        """Download model checkpoints using huggingface-cli."""
+        logger.info("Downloading InfiniteTalk model checkpoints...")
         
-        checkpoint_dir = self.repo_path / "checkpoints"
-        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        weights_dir = self.base_path / "weights"
+        weights_dir.mkdir(parents=True, exist_ok=True)
         
-        logger.info("Checking model checkpoints...")
-        
-        # Define required checkpoints
-        required_files = [
-            "audio_processor.pth",
-            "face_encoder.pth", 
-            "generator.pth",
-            "config.yaml"
+        checkpoints = [
+            ("Wan-AI/Wan2.1-I2V-14B-480P", "Wan2.1-I2V-14B-480P"),
+            ("TencentGameMate/chinese-wav2vec2-base", "chinese-wav2vec2-base"),
+            ("MeiGen-AI/InfiniteTalk", "InfiniteTalk"),
         ]
         
-        try:
-            for filename in required_files:
-                local_path = checkpoint_dir / filename
-                if not local_path.exists():
-                    logger.info(f"Downloading {filename}...")
-                    hf_hub_download(
-                        repo_id="MeiGen-AI/InfiniteTalk",
-                        filename=f"checkpoints/{filename}",
-                        local_dir=str(self.repo_path),
-                        local_dir_use_symlinks=False
+        for repo_id, local_name in checkpoints:
+            local_dir = weights_dir / local_name
+            if not local_dir.exists():
+                logger.info(f"Downloading {repo_id}...")
+                try:
+                    subprocess.run(
+                        [
+                            "huggingface-cli", "download",
+                            repo_id,
+                            "--local-dir", str(local_dir)
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True
                     )
-            
-            logger.info("✓ All checkpoints ready")
-            
-        except Exception as e:
-            logger.error(f"Checkpoint download failed: {e}")
-            raise RuntimeError(f"Could not download checkpoints: {e}")
-    
-    def _load_model(self):
-        """Load the InfiniteTalk model."""
-        try:
-            # Import InfiniteTalk modules
-            from inference import InfiniteTalkInference
-            
-            checkpoint_path = str(self.repo_path / "checkpoints")
-            
-            self.model = InfiniteTalkInference(
-                checkpoint_dir=checkpoint_path,
-                device=self.device
-            )
-            
-            logger.info("✓ Model loaded successfully")
-            
-        except ImportError:
-            # Fallback: try alternative import
-            try:
-                import importlib.util
-                spec = importlib.util.spec_from_file_location(
-                    "inference", 
-                    self.repo_path / "inference.py"
-                )
-                inference_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(inference_module)
-                
-                checkpoint_path = str(self.repo_path / "checkpoints")
-                self.model = inference_module.InfiniteTalkInference(
-                    checkpoint_dir=checkpoint_path,
-                    device=self.device
-                )
-                
-                logger.info("✓ Model loaded via fallback method")
-                
-            except Exception as e:
-                logger.error(f"Could not load model: {e}")
-                raise RuntimeError(f"Failed to load InfiniteTalk model: {e}")
+                    logger.info(f"✓ Downloaded {local_name}")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"Failed to download {repo_id}: {e.stderr}")
+                    raise
+            else:
+                logger.info(f"✓ {local_name} already exists")
+        
+        logger.info("✓ All checkpoints ready")
     
     def __call__(
         self,
@@ -185,7 +143,7 @@ class InfiniteTalkPipeline:
         generator: Optional[torch.Generator] = None,
         **kwargs
     ) -> List[Image.Image]:
-        """Generate talking head video."""
+        """Generate talking head video using InfiniteTalk CLI."""
         
         # Ensure initialized
         self._ensure_installed()
@@ -195,33 +153,80 @@ class InfiniteTalkPipeline:
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
         
-        # Preprocess image
-        image = self._preprocess_image(image)
-        
-        try:
-            logger.info(f"Generating {num_frames} frames at {fps} FPS...")
+        # Create temporary directories
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
             
-            # Call InfiniteTalk model
-            output = self.model.generate(
-                face_image=np.array(image),
-                audio_path=str(audio_path),
-                num_frames=num_frames,
-                fps=fps,
-                expression_scale=expression_scale,
-                head_motion_scale=head_motion_scale,
-            )
+            # Save input image
+            input_image_path = temp_path / "input_face.png"
+            image = self._preprocess_image(image)
+            image.save(input_image_path)
             
-            # Convert output to PIL Images
-            frames = self._convert_to_pil(output)
+            # Create input JSON for InfiniteTalk
+            input_json_path = temp_path / "input.json"
+            input_json = {
+                "image_path": str(input_image_path),
+                "audio_path": str(audio_path),
+                "output_path": str(temp_path / "output.mp4")
+            }
             
-            logger.info(f"✓ Generated {len(frames)} frames successfully")
-            return frames
+            with open(input_json_path, 'w') as f:
+                json.dump(input_json, f)
             
-        except Exception as e:
-            logger.error(f"Generation failed: {e}")
-            import traceback
-            traceback.print_exc()
-            raise RuntimeError(f"Video generation failed: {e}")
+            # Run InfiniteTalk generation
+            logger.info(f"Running InfiniteTalk with {num_frames} frames at {fps} FPS...")
+            
+            weights_dir = self.base_path / "weights"
+            
+            cmd = [
+                "python", str(self.repo_path / "generate_infinitetalk.py"),
+                "--ckpt_dir", str(weights_dir / "Wan2.1-I2V-14B-480P"),
+                "--wav2vec_dir", str(weights_dir / "chinese-wav2vec2-base"),
+                "--infinitetalk_dir", str(weights_dir / "InfiniteTalk/single/infinitetalk.safetensors"),
+                "--input_json", str(input_json_path),
+                "--size", "infinitetalk-480",
+                "--sample_steps", "40",
+                "--mode", "streaming",
+                "--motion_frame", "9",
+                "--save_file", str(temp_path / "output")
+            ]
+            
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                    cwd=str(self.repo_path)
+                )
+                
+                if result.returncode != 0:
+                    logger.error(f"InfiniteTalk failed: {result.stderr}")
+                    raise RuntimeError(f"InfiniteTalk generation failed: {result.stderr}")
+                
+                logger.info("✓ InfiniteTalk generation complete")
+                
+                # Find output video
+                output_video = temp_path / "output.mp4"
+                if not output_video.exists():
+                    # Try alternative output names
+                    possible_outputs = list(temp_path.glob("*.mp4"))
+                    if possible_outputs:
+                        output_video = possible_outputs[0]
+                    else:
+                        raise FileNotFoundError("InfiniteTalk did not produce output video")
+                
+                # Extract frames from video
+                frames = self._extract_frames(output_video, num_frames)
+                
+                logger.info(f"✓ Extracted {len(frames)} frames")
+                return frames
+                
+            except subprocess.TimeoutExpired:
+                raise RuntimeError("InfiniteTalk generation timed out (>10 minutes)")
+            except Exception as e:
+                logger.error(f"Generation failed: {e}")
+                raise
     
     def _preprocess_image(self, image: Image.Image) -> Image.Image:
         """Preprocess face image to proper format and size."""
@@ -236,65 +241,32 @@ class InfiniteTalkPipeline:
         
         return image
     
-    def _convert_to_pil(self, frames) -> List[Image.Image]:
-        """Convert various frame formats to list of PIL Images."""
-        pil_frames = []
+    def _extract_frames(self, video_path: Path, num_frames: int) -> List[Image.Image]:
+        """Extract frames from generated video using ffmpeg."""
+        import cv2
         
-        # Handle different output formats
-        if isinstance(frames, dict):
-            if 'frames' in frames:
-                frames = frames['frames']
-            elif 'images' in frames:
-                frames = frames['images']
+        frames = []
+        cap = cv2.VideoCapture(str(video_path))
         
-        if hasattr(frames, 'frames'):
-            frames = frames.frames
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        if isinstance(frames, torch.Tensor):
-            frames = frames.cpu().numpy()
+        for i in range(min(num_frames, total_frames)):
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            # Convert BGR to RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(frame_rgb)
+            frames.append(pil_image)
         
-        if isinstance(frames, np.ndarray):
-            if frames.ndim == 4:
-                # [N, C, H, W] or [N, H, W, C]
-                if frames.shape[1] == 3 or frames.shape[1] == 4:
-                    # [N, C, H, W] -> [N, H, W, C]
-                    frames = np.transpose(frames, (0, 2, 3, 1))
-                
-                for frame in frames:
-                    # Normalize to 0-255
-                    if frame.max() <= 1.0:
-                        frame = (frame * 255).astype(np.uint8)
-                    else:
-                        frame = np.clip(frame, 0, 255).astype(np.uint8)
-                    
-                    # Handle RGBA -> RGB
-                    if frame.shape[-1] == 4:
-                        frame = frame[..., :3]
-                    
-                    pil_frames.append(Image.fromarray(frame))
-            else:
-                raise ValueError(f"Unexpected numpy array shape: {frames.shape}")
+        cap.release()
         
-        elif isinstance(frames, list):
-            for frame in frames:
-                if isinstance(frame, Image.Image):
-                    pil_frames.append(frame)
-                elif isinstance(frame, np.ndarray):
-                    if frame.max() <= 1.0:
-                        frame = (frame * 255).astype(np.uint8)
-                    pil_frames.append(Image.fromarray(frame))
-                else:
-                    raise ValueError(f"Unexpected frame type in list: {type(frame)}")
-        else:
-            raise ValueError(f"Unexpected frames type: {type(frames)}")
-        
-        return pil_frames
+        return frames
     
     def to(self, device: str):
         """Move model to device."""
         self.device = device
-        if self.model and hasattr(self.model, 'to'):
-            self.model.to(device)
         return self
 
 
