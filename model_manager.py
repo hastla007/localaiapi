@@ -388,45 +388,24 @@ class ModelManager:
 
         print(f"Loading {model_info['name']} from {model_id}...")
 
-        dtype = self._select_dtype(torch.float16)
-
         try:
-            from diffusers import AutoPipelineForText2Video
+            # Import InfiniteTalk wrapper
+            from infinitetalk_wrapper import get_infinitetalk_pipeline
 
-            pipe = AutoPipelineForText2Video.from_pretrained(
-                model_id,
-                torch_dtype=dtype,
-                trust_remote_code=True,
-                use_safetensors=True,
-            )
+            device_str = "cuda" if self.cuda_compatible else "cpu"
+            pipe = get_infinitetalk_pipeline(device=device_str)
 
-            if self.cuda_compatible:
-                pipe.enable_model_cpu_offload()
-                if hasattr(pipe, "enable_vae_slicing"):
-                    pipe.enable_vae_slicing()
-
-            pipe = pipe.to(self.device)
             print(f"  {model_info['name']} loaded successfully")
             return pipe
 
         except Exception as e:
             print(f"  Error loading InfiniteTalk: {str(e)}")
-            print("  Attempting alternative loading method...")
-
-            from diffusers import DiffusionPipeline
-
-            pipe = DiffusionPipeline.from_pretrained(
-                model_id,
-                torch_dtype=dtype,
-                trust_remote_code=True,
+            print("  InfiniteTalk requires proper installation from GitHub")
+            print("  Visit: https://github.com/MeiGen-AI/InfiniteTalk")
+            raise RuntimeError(
+                f"InfiniteTalk failed to load: {str(e)}. "
+                "Please ensure InfiniteTalk is properly installed."
             )
-
-            if self.cuda_compatible:
-                pipe.enable_model_cpu_offload()
-
-            pipe = pipe.to(self.device)
-            print(f"  {model_info['name']} loaded successfully (fallback method)")
-            return pipe
 
     def _load_controlnet_model(self, model_key: str):
         model_info = self.AVAILABLE_MODELS[model_key]
