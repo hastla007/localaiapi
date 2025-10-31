@@ -18,6 +18,7 @@ import numpy as np
 import asyncio
 import aiohttp
 import traceback
+import subprocess
 
 # Import model managers
 from model_manager import ModelManager
@@ -130,6 +131,62 @@ async def text_to_speech(
         raise Exception("TTS server timeout. Text might be too long.")
     except Exception as e:
         raise Exception(f"TTS generation failed: {str(e)}")
+
+
+def ensure_audio_format(audio_path: Path) -> Path:
+    """Ensure audio is converted to 16kHz mono WAV for InfiniteTalk."""
+
+    converted_path = audio_path.with_suffix(".converted.wav")
+
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(audio_path),
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                str(converted_path),
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+        # Replace original file with converted audio
+        try:
+            audio_path.unlink()
+        except FileNotFoundError:
+            pass
+
+        converted_path.replace(audio_path)
+        metrics_tracker.add_log(
+            f"Audio normalized to 16kHz mono WAV: {audio_path.name}"
+        )
+
+    except FileNotFoundError:
+        metrics_tracker.add_log(
+            "ffmpeg not available; skipping audio normalization"
+        )
+        if converted_path.exists():
+            converted_path.unlink()
+    except subprocess.CalledProcessError as error:
+        stderr = (error.stderr or b"").decode("utf-8", errors="ignore")
+        metrics_tracker.add_log(
+            f"Audio normalization failed with ffmpeg: {stderr.strip()}"
+        )
+        if converted_path.exists():
+            converted_path.unlink()
+    except Exception as exc:
+        metrics_tracker.add_log(
+            f"Unexpected error during audio normalization: {exc}"
+        )
+        if converted_path.exists():
+            converted_path.unlink()
+
+    return audio_path
 
 
 @app.get("/api/tts/status")
@@ -796,6 +853,8 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
             with open(audio_path, "wb") as audio_file:
                 audio_file.write(audio_bytes)
 
+            audio_path = ensure_audio_format(audio_path)
+
         elif request.text:
             metrics_tracker.add_log(f"Generating speech from text: {request.text[:50]}...")
             try:
@@ -808,6 +867,8 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
                 audio_path = Path("/app/outputs") / f"temp_tts_{int(time.time())}.wav"
                 with open(audio_path, "wb") as audio_file:
                     audio_file.write(audio_bytes)
+
+                audio_path = ensure_audio_format(audio_path)
 
                 metrics_tracker.add_log(f"TTS audio generated: {audio_path}")
 
