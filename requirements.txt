@@ -55,3 +55,8 @@ scikit-image==0.22.0
 # InfiniteTalk specific
 onnxruntime-gpu==1.16.3
 insightface==0.7.3
+# InfiniteTalk dependencies (will use on first generation)
+kornia==0.7.0
+einops-exts==0.0.4
+rotary-embedding-torch==0.5.3
+gitpython==3.1.40
