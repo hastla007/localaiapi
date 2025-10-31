@@ -97,8 +97,9 @@ async def text_to_speech(
     temperature: float = 0.7,
     response_format: str = "wav"
 ) -> bytes:
-    """Convert text to speech using local TTS server"""
+    """Convert text to speech using local TTS server with job queue polling"""
 
+    # Prepare payload for job submission
     payload = {
         "input": text,
         "voice": voice,
@@ -108,27 +109,108 @@ async def text_to_speech(
         "temperature": temperature
     }
 
-    metrics_tracker.add_log(f"Calling TTS server: {TTS_SERVER_URL}")
+    metrics_tracker.add_log(f"Submitting TTS job to: {TTS_SERVER_URL}")
 
     try:
         async with aiohttp.ClientSession() as session:
+            # Step 1: Submit job
             async with session.post(
                 TTS_SERVER_URL,
                 json=payload,
-                timeout=aiohttp.ClientTimeout(total=120)
+                timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
-                    raise Exception(f"TTS server error ({response.status}): {error_text}")
+                    raise Exception(f"TTS job submission failed ({response.status}): {error_text}")
 
-                audio_bytes = await response.read()
-                metrics_tracker.add_log(f"TTS audio received: {len(audio_bytes)} bytes")
-                return audio_bytes
+                job_data = await response.json()
+
+                # Handle array response [{}] or direct object {}
+                if isinstance(job_data, list):
+                    job_data = job_data[0]
+
+                job_id = job_data.get("job_id")
+                if not job_id:
+                    raise Exception("TTS server did not return job_id")
+
+                metrics_tracker.add_log(f"TTS job submitted: {job_id}")
+
+                # Extract base URL (remove /audio/speech/long)
+                base_url = TTS_SERVER_URL.rsplit('/audio/speech/long', 1)[0]
+                details_url = f"{base_url}/audio/speech/long/{job_id}/details"
+
+                metrics_tracker.add_log(f"Polling status at: {details_url}")
+
+            # Step 2: Poll for completion
+            max_attempts = 120  # 2 minutes max (120 * 1 second)
+            attempt = 0
+
+            while attempt < max_attempts:
+                await asyncio.sleep(1)  # Poll every 1 second
+                attempt += 1
+
+                async with session.get(
+                    details_url,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as status_response:
+                    if status_response.status != 200:
+                        continue
+
+                    status_data = await status_response.json()
+
+                    # Handle array response
+                    if isinstance(status_data, list):
+                        status_data = status_data[0]
+
+                    metadata = status_data.get("metadata", {})
+                    status = metadata.get("status")
+
+                    if status == "completed":
+                        audio_file_path = metadata.get("audio_file_path")
+                        if not audio_file_path:
+                            raise Exception("TTS completed but no audio_file_path returned")
+
+                        metrics_tracker.add_log(f"TTS completed: {audio_file_path}")
+
+                        # Step 3: Download the audio file
+                        audio_url = f"{base_url}/{audio_file_path}"
+                        metrics_tracker.add_log(f"Downloading audio from: {audio_url}")
+
+                        async with session.get(
+                            audio_url,
+                            timeout=aiohttp.ClientTimeout(total=30)
+                        ) as audio_response:
+                            if audio_response.status != 200:
+                                raise Exception(f"Failed to download audio: {audio_response.status}")
+
+                            audio_bytes = await audio_response.read()
+                            metrics_tracker.add_log(f"TTS audio downloaded: {len(audio_bytes)} bytes")
+                            return audio_bytes
+
+                    elif status == "failed":
+                        error = metadata.get("error", "Unknown error")
+                        raise Exception(f"TTS job failed: {error}")
+
+                    elif status in ["pending", "processing"]:
+                        # Continue polling
+                        if attempt % 10 == 0:  # Log every 10 seconds
+                            completed_chunks = metadata.get("completed_chunks", 0)
+                            total_chunks = metadata.get("total_chunks", 1)
+                            metrics_tracker.add_log(
+                                f"TTS processing... ({completed_chunks}/{total_chunks} chunks, attempt {attempt})"
+                            )
+                        continue
+                    else:
+                        metrics_tracker.add_log(f"Unknown TTS status: {status}")
+                        continue
+
+            # Timeout
+            raise Exception(f"TTS job timeout after {max_attempts} seconds")
 
     except aiohttp.ClientConnectorError:
         raise Exception(f"Cannot connect to TTS server at {TTS_SERVER_URL}. Check network/firewall.")
     except asyncio.TimeoutError:
-        raise Exception("TTS server timeout. Text might be too long.")
+        raise Exception("TTS server timeout. Text might be too long or server is overloaded.")
     except Exception as e:
         raise Exception(f"TTS generation failed: {str(e)}")
 
