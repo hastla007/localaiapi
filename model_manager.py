@@ -15,7 +15,8 @@ from diffusers import (
     DPMSolverMultistepScheduler,
     AnimateDiffPipeline,
     MotionAdapter,
-    LCMScheduler
+    LCMScheduler,
+    DiffusionPipeline
 )
 
 # Try to import FluxPipeline
@@ -120,6 +121,14 @@ class ModelManager:
             "vram_gb": 5,
             "category": "Video",
             "description": "Fast image-to-video (WAN 2.1 style, 4-8 steps)"
+        },
+        "infinitetalk": {
+            "name": "InfiniteTalk",
+            "type": "talking-head",
+            "model_id": "MeiGen-AI/InfiniteTalk",
+            "vram_gb": 8,
+            "category": "Video",
+            "description": "Generate talking head videos from face image + audio/text"
         },
         "mistoline": {
             "name": "MistoLine",
@@ -320,7 +329,7 @@ class ModelManager:
     def _load_video_generation_model(self, model_key: str):
         model_info = self.AVAILABLE_MODELS[model_key]
         model_id = model_info["model_id"]
-        
+
         print(f"Loading {model_info['name']} from {model_id}...")
         
         dtype = self._select_dtype(torch.float16)
@@ -370,11 +379,57 @@ class ModelManager:
         pipe = pipe.to(self.device)
         print(f"  {model_info['name']} loaded successfully")
         return pipe
-    
+
+    def _load_talking_head_model(self, model_key: str):
+        """Load talking head models such as InfiniteTalk."""
+
+        model_info = self.AVAILABLE_MODELS[model_key]
+        model_id = model_info["model_id"]
+
+        print(f"Loading {model_info['name']} from {model_id}...")
+
+        dtype = self._select_dtype(torch.float16)
+
+        try:
+            from diffusers import DiffusionPipeline
+
+            pipe = DiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                use_safetensors=True,
+                trust_remote_code=True,
+            )
+
+            if self.cuda_compatible:
+                pipe.enable_model_cpu_offload()
+                if hasattr(pipe, "enable_vae_slicing"):
+                    pipe.enable_vae_slicing()
+
+            pipe = pipe.to(self.device)
+            print(f"  {model_info['name']} loaded successfully")
+            return pipe
+
+        except Exception as e:
+            print(f"  Error loading InfiniteTalk: {str(e)}")
+            print("  Attempting alternative loading method...")
+
+            pipe = DiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                trust_remote_code=True,
+            )
+
+            if self.cuda_compatible:
+                pipe.enable_model_cpu_offload()
+
+            pipe = pipe.to(self.device)
+            print(f"  {model_info['name']} loaded successfully (fallback method)")
+            return pipe
+
     def _load_controlnet_model(self, model_key: str):
         model_info = self.AVAILABLE_MODELS[model_key]
         model_id = model_info["model_id"]
-        
+
         print(f"Loading {model_info['name']} from {model_id}...")
         
         dtype = self._select_dtype(torch.float16)
@@ -418,6 +473,8 @@ class ModelManager:
             model = self._load_video_generation_model(model_key)
         elif model_type == "controlnet":
             model = self._load_controlnet_model(model_key)
+        elif model_type == "talking-head":
+            model = self._load_talking_head_model(model_key)
         else:
             raise ValueError(f"Unknown model type: {model_type}")
         
