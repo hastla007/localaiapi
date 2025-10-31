@@ -83,7 +83,7 @@
         
         <!-- Overview Tab -->
         <div id="overview-tab" class="tab-content active">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
                 <!-- System Status Card -->
                 <div class="bg-white rounded-lg shadow-md p-6">
                     <h3 class="text-lg font-semibold text-gray-700 mb-4">System Status</h3>
@@ -149,6 +149,20 @@
                         </div>
                         <button onclick="checkComfyUIStatus()"
                                 class="w-full bg-indigo-500 hover:bg-indigo-600 text-white text-sm py-2 px-4 rounded transition mt-2">
+                            🔄 Check Status
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-4">TTS Server Status</h3>
+                    <div id="tts-status" class="space-y-3">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">TTS Server:</span>
+                            <span id="tts-status-text" class="font-semibold text-gray-400">Checking...</span>
+                        </div>
+                        <button onclick="checkTTSStatus()"
+                                class="w-full bg-blue-500 hover:bg-blue-600 text-white text-sm py-2 px-4 rounded transition mt-2">
                             🔄 Check Status
                         </button>
                     </div>
@@ -531,6 +545,124 @@
                     </div>
                 </div>
 
+                <!-- Talking Head (InfiniteTalk) -->
+                <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
+                    <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                        🗣️ Talking Head (InfiniteTalk)
+                    </h3>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <!-- Input Panel -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Upload Face Image</label>
+                                <input type="file" id="infinitetalk-face-upload" accept="image/*"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                    onchange="previewInfiniteTalkFace(this)">
+                                <p class="text-xs text-gray-500 mt-1">Portrait photo with clear face visible</p>
+                            </div>
+
+                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                                <p class="text-sm font-medium text-blue-900 mb-2">Input Mode:</p>
+                                <div class="space-y-2">
+                                    <label class="flex items-center">
+                                        <input type="radio" name="infinitetalk-mode" value="audio" checked
+                                            class="mr-2" onchange="toggleInfiniteTalkMode()">
+                                        <span class="text-sm text-blue-800">🎵 Audio File (provide your own audio)</span>
+                                    </label>
+                                    <label class="flex items-center">
+                                        <input type="radio" name="infinitetalk-mode" value="text"
+                                            class="mr-2" onchange="toggleInfiniteTalkMode()">
+                                        <span class="text-sm text-blue-800">💬 Text-to-Speech (synthesize speech)</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div id="infinitetalk-audio-input">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Upload Audio File</label>
+                                <input type="file" id="infinitetalk-audio-upload" accept="audio/wav,audio/mp3,audio/mpeg"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <p class="text-xs text-gray-500 mt-1">WAV or MP3 format, clear speech recommended</p>
+                            </div>
+
+                            <div id="infinitetalk-text-input" style="display: none;">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Speech Text</label>
+                                <textarea id="infinitetalk-text" rows="4"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Enter the text you want the face to speak..."></textarea>
+                                <p class="text-xs text-gray-500 mt-1">Will synthesize speech and animate face</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Video Length (frames): <span id="infinitetalk-frames-value">120</span>
+                                </label>
+                                <input type="range" id="infinitetalk-frames" min="30" max="300" value="120"
+                                    class="w-full" oninput="updateInfiniteTalkDuration()">
+                                <p class="text-xs text-gray-500 mt-1" id="infinitetalk-duration">~4.8 seconds at 25 FPS</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    FPS: <span id="infinitetalk-fps-value">25</span>
+                                </label>
+                                <input type="range" id="infinitetalk-fps" min="15" max="30" value="25"
+                                    class="w-full" oninput="updateInfiniteTalkDuration()">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Expression Scale: <span id="infinitetalk-expression-value">1.0</span>
+                                </label>
+                                <input type="range" id="infinitetalk-expression" min="0.5" max="2" step="0.1" value="1.0"
+                                    class="w-full"
+                                    oninput="document.getElementById('infinitetalk-expression-value').textContent = this.value">
+                                <p class="text-xs text-gray-500">Higher = more expressive facial movements</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Head Motion Scale: <span id="infinitetalk-motion-value">1.0</span>
+                                </label>
+                                <input type="range" id="infinitetalk-motion" min="0.5" max="2" step="0.1" value="1.0"
+                                    class="w-full"
+                                    oninput="document.getElementById('infinitetalk-motion-value').textContent = this.value">
+                                <p class="text-xs text-gray-500">Higher = more head movement</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Seed (optional)</label>
+                                <input type="number" id="infinitetalk-seed"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                                    placeholder="Leave empty for random">
+                            </div>
+
+                            <button onclick="generateInfiniteTalk()" id="infinitetalk-btn" disabled
+                                class="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-3 px-6 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed">
+                                🗣️ Generate Talking Head Video
+                            </button>
+
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+                                ⚠️ Generation takes 1-2 minutes. Ensure face is clearly visible in portrait photo.
+                            </div>
+                        </div>
+
+                        <!-- Preview Panel -->
+                        <div>
+                            <div class="bg-gray-50 rounded-lg border-2 border-gray-200 preview-container" id="infinitetalk-preview">
+                                <div class="text-center text-gray-400">
+                                    <svg class="w-24 h-24 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                                    </svg>
+                                    <p>Upload a face image to begin</p>
+                                </div>
+                            </div>
+                            <div id="infinitetalk-info" class="mt-4 text-sm text-gray-600"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- ControlNet -->
                 <div class="lg:col-span-3 bg-white rounded-lg shadow-md p-6 mt-6">
                     <h3 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
@@ -801,6 +933,7 @@
         let uploadedImageBase64 = null;
         let uploadedVideoImageBase64 = null;
         let uploadedControlImageBase64 = null;
+        let uploadedInfiniteTalkFaceBase64 = null;
 
         // Initialize dashboard
         document.addEventListener('DOMContentLoaded', function() {
@@ -811,10 +944,14 @@
             initCharts();
             updateVideoModelParams();
             checkComfyUIStatus();
+            checkTTSStatus();
+            updateInfiniteTalkDuration();
+            toggleInfiniteTalkMode();
 
             // Auto-refresh every 30 seconds
             setInterval(refreshStatus, 30000);
             setInterval(checkComfyUIStatus, 60000);
+            setInterval(checkTTSStatus, 60000);
         });
 
         // Tab switching
@@ -1313,6 +1450,152 @@
             }
         }
 
+        // InfiniteTalk Functions
+        function previewInfiniteTalkFace(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    uploadedInfiniteTalkFaceBase64 = e.target.result;
+                    document.getElementById('infinitetalk-preview').innerHTML = `
+                        <img src="${e.target.result}" class="max-w-full h-auto rounded-lg" alt="Face image">
+                    `;
+                    document.getElementById('infinitetalk-btn').disabled = false;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function toggleInfiniteTalkMode() {
+            const mode = document.querySelector('input[name="infinitetalk-mode"]:checked').value;
+            const audioInput = document.getElementById('infinitetalk-audio-input');
+            const textInput = document.getElementById('infinitetalk-text-input');
+
+            if (mode === 'audio') {
+                audioInput.style.display = 'block';
+                textInput.style.display = 'none';
+            } else {
+                audioInput.style.display = 'none';
+                textInput.style.display = 'block';
+            }
+        }
+
+        function updateInfiniteTalkDuration() {
+            const frames = parseInt(document.getElementById('infinitetalk-frames').value);
+            const fps = parseInt(document.getElementById('infinitetalk-fps').value);
+            const duration = (frames / fps).toFixed(1);
+
+            document.getElementById('infinitetalk-frames-value').textContent = frames;
+            document.getElementById('infinitetalk-fps-value').textContent = fps;
+            document.getElementById('infinitetalk-duration').textContent = `~${duration} seconds at ${fps} FPS`;
+        }
+
+        async function generateInfiniteTalk() {
+            if (!uploadedInfiniteTalkFaceBase64) {
+                showNotification('Please upload a face image first', 'error');
+                return;
+            }
+
+            const mode = document.querySelector('input[name="infinitetalk-mode"]:checked').value;
+            const preview = document.getElementById('infinitetalk-preview');
+            const info = document.getElementById('infinitetalk-info');
+            const button = document.getElementById('infinitetalk-btn');
+
+            if (mode === 'audio') {
+                const audioFile = document.getElementById('infinitetalk-audio-upload').files[0];
+                if (!audioFile) {
+                    showNotification('Please upload an audio file', 'error');
+                    return;
+                }
+            } else {
+                const text = document.getElementById('infinitetalk-text').value.trim();
+                if (!text) {
+                    showNotification('Please enter speech text', 'error');
+                    return;
+                }
+            }
+
+            button.disabled = true;
+            preview.innerHTML = '<div class="text-center"><div class="loading-spinner mx-auto"></div><p class="mt-4 text-gray-600">Generating talking head video...</p></div>';
+            info.innerHTML = '<p class="text-blue-600">⏳ This may take 1-2 minutes...</p>';
+
+            try {
+                const payload = {
+                    face_image: uploadedInfiniteTalkFaceBase64,
+                    num_frames: parseInt(document.getElementById('infinitetalk-frames').value),
+                    fps: parseInt(document.getElementById('infinitetalk-fps').value),
+                    expression_scale: parseFloat(document.getElementById('infinitetalk-expression').value),
+                    head_motion_scale: parseFloat(document.getElementById('infinitetalk-motion').value),
+                };
+
+                const seedValue = document.getElementById('infinitetalk-seed').value;
+                if (seedValue) {
+                    payload.seed = parseInt(seedValue);
+                }
+
+                if (mode === 'audio') {
+                    const audioFile = document.getElementById('infinitetalk-audio-upload').files[0];
+                    const audioBase64 = await fileToBase64(audioFile);
+                    payload.audio = audioBase64;
+                } else {
+                    payload.text = document.getElementById('infinitetalk-text').value;
+                }
+
+                const response = await fetch('/api/talking-head/infinitetalk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+
+                if (!response.ok) {
+                    throw new Error('Talking head generation failed');
+                }
+
+                const data = await response.json();
+
+                preview.innerHTML = `
+                    <div class="text-center">
+                        <svg class="w-24 h-24 mx-auto mb-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <p class="text-gray-700 mb-4">✅ Talking head video generated!</p>
+                        <a href="${data.video_path.replace('/app/outputs/', '/api/download/')}" download
+                           class="inline-block bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 transition">
+                            Download Video
+                        </a>
+                    </div>
+                `;
+
+                info.innerHTML = `
+                    <div class="text-sm">
+                        <p>✅ Generated in ${data.generation_time}s</p>
+                        <p>Frames: ${data.num_frames} at ${data.fps} FPS</p>
+                        <p>Input: ${data.input_type}</p>
+                        <p>Expression Scale: ${payload.expression_scale} | Motion: ${payload.head_motion_scale}</p>
+                    </div>
+                `;
+
+                showNotification('Talking head video generated successfully!', 'success');
+                refreshResults();
+                refreshMetrics();
+
+            } catch (error) {
+                preview.innerHTML = '<div class="text-center text-red-500"><p>❌ Generation failed</p></div>';
+                info.innerHTML = `<p class="text-red-600">${error.message}</p>`;
+                showNotification('Generation failed: ' + error.message, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
         async function checkComfyUIStatus() {
             try {
                 const response = await fetch('/api/comfyui/status');
@@ -1343,6 +1626,36 @@
                 }
             } catch (error) {
                 console.error('Error checking ComfyUI status:', error);
+            }
+        }
+
+        async function checkTTSStatus() {
+            try {
+                const response = await fetch('/api/tts/status');
+                const data = await response.json();
+
+                const statusText = document.getElementById('tts-status-text');
+                if (!statusText) {
+                    return;
+                }
+
+                if (data.available) {
+                    statusText.textContent = 'Online';
+                    statusText.className = 'font-semibold text-green-600';
+                } else {
+                    statusText.textContent = 'Offline';
+                    statusText.className = 'font-semibold text-red-600';
+                    if (data.error) {
+                        console.error('TTS error:', data.error);
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking TTS status:', error);
+                const statusText = document.getElementById('tts-status-text');
+                if (statusText) {
+                    statusText.textContent = 'Error';
+                    statusText.className = 'font-semibold text-red-600';
+                }
             }
         }
 
