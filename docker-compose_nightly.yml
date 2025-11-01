@@ -30,7 +30,7 @@ services:
   ai-api:
     build:
       context: .
-      dockerfile: Dockerfile_nightly
+      dockerfile: Dockerfile
     container_name: ai-api-local
     ports:
       - "8000:8000"
@@ -54,6 +54,7 @@ services:
       - CUDA_LAUNCH_BLOCKING=0
       - TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
       - COMFYUI_URL=http://comfyui:8188
+      - TTS_SERVER_URL=http://10.120.2.5:4321/audio/speech/long
     deploy:
       resources:
         reservations:
