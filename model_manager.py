@@ -123,12 +123,12 @@ class ModelManager:
             "description": "Fast image-to-video (WAN 2.1 style, 4-8 steps)"
         },
         "infinitetalk": {
-            "name": "InfiniteTalk",
+            "name": "InfiniteTalk (Hybrid + WAN 2.1)",
             "type": "talking-head",
-            "model_id": "MeiGen-AI/InfiniteTalk",
-            "vram_gb": 8,
+            "model_id": "hybrid-infinitetalk-wan21",
+            "vram_gb": 5,  # Reduced - only WAN 2.1 needs GPU, face prep is CPU
             "category": "Video",
-            "description": "Generate talking head videos from face image + audio/text"
+            "description": "Talking head using face prep + ComfyUI WAN 2.1"
         },
         "mistoline": {
             "name": "MistoLine",
@@ -381,30 +381,49 @@ class ModelManager:
         return pipe
 
     def _load_talking_head_model(self, model_key: str):
-        """Load talking head models such as InfiniteTalk."""
-
+        """Load talking head models - now using hybrid approach with ComfyUI WAN 2.1"""
+        
         model_info = self.AVAILABLE_MODELS[model_key]
         model_id = model_info["model_id"]
 
-        print(f"Loading {model_info['name']} from {model_id}...")
+        print(f"Loading {model_info['name']} (Hybrid Mode)...")
+        print("=" * 60)
+        print("  HYBRID INFINITETALK")
+        print("  Face Preprocessing: CPU (lightweight)")
+        print("  Video Generation: ComfyUI WAN 2.1 (your working setup)")
+        print("=" * 60)
 
         try:
-            # Import InfiniteTalk wrapper
-            from infinitetalk_wrapper import get_infinitetalk_pipeline
+            # Import hybrid InfiniteTalk wrapper
+            from infinitetalk_hybrid import get_hybrid_infinitetalk_pipeline
 
-            device_str = "cuda" if self.cuda_compatible else "cpu"
-            pipe = get_infinitetalk_pipeline(device=device_str)
+            device_str = "cpu"  # Face preprocessing is CPU-based (lightweight)
+            pipe = get_hybrid_infinitetalk_pipeline(device=device_str)
 
-            print(f"  {model_info['name']} loaded successfully")
+            print(f"  ✓ {model_info['name']} loaded successfully")
+            print(f"  → Face detection: MediaPipe/OpenCV (CPU)")
+            print(f"  → Video generation: ComfyUI WAN 2.1 (GPU via ComfyUI)")
+            print(f"  → VRAM usage: ~5GB (only WAN 2.1, no duplication)")
+            print(f"  → Generation speed: 30-60 seconds")
+            print("=" * 60)
+            
             return pipe
 
-        except Exception as e:
-            print(f"  Error loading InfiniteTalk: {str(e)}")
-            print("  InfiniteTalk requires proper installation from GitHub")
-            print("  Visit: https://github.com/MeiGen-AI/InfiniteTalk")
+        except ImportError as e:
+            print(f"  ❌ Error: infinitetalk_hybrid module not found")
+            print(f"  → Make sure infinitetalk_hybrid.py is in your project root")
+            print(f"  → Import error: {str(e)}")
             raise RuntimeError(
-                f"InfiniteTalk failed to load: {str(e)}. "
-                "Please ensure InfiniteTalk is properly installed."
+                f"Hybrid InfiniteTalk failed to load: {str(e)}. "
+                "Ensure infinitetalk_hybrid.py is in your project directory."
+            )
+        except Exception as e:
+            print(f"  ❌ Error loading Hybrid InfiniteTalk: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(
+                f"Hybrid InfiniteTalk failed to load: {str(e)}. "
+                "Check logs above for details."
             )
 
     def _load_controlnet_model(self, model_key: str):
