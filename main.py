@@ -422,16 +422,27 @@ async def dashboard_status():
 
 @app.get("/api/dashboard/results")
 async def dashboard_results():
+    """Get all generated files from outputs directory (including subdirectories)"""
     outputs_dir = Path("/app/outputs")
     results = []
     
     if outputs_dir.exists():
-        for file in sorted(outputs_dir.glob("*"), key=lambda x: x.stat().st_mtime, reverse=True)[:50]:
+        # Use rglob to recursively find all files including in subdirectories
+        all_files = [f for f in outputs_dir.rglob("*") if f.is_file()]
+        
+        # Sort by modification time and take last 50
+        for file in sorted(all_files, key=lambda x: x.stat().st_mtime, reverse=True)[:50]:
+            # Get relative path from outputs directory
+            relative_path = file.relative_to(outputs_dir)
+            
+            # Convert Path to string with forward slashes (works on all platforms)
+            relative_path_str = str(relative_path).replace('\\', '/')
+            
             if file.suffix in ['.png', '.jpg', '.jpeg']:
                 results.append({
                     "type": "image",
-                    "path": f"/api/download/{file.name}",
-                    "thumbnail": f"/api/download/{file.name}",
+                    "path": f"/api/download/{relative_path_str}",
+                    "thumbnail": f"/api/download/{relative_path_str}",
                     "filename": file.name,
                     "model": file.stem.split('_')[0],
                     "timestamp": datetime.fromtimestamp(file.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
@@ -440,7 +451,7 @@ async def dashboard_results():
             elif file.suffix in ['.mp4']:
                 results.append({
                     "type": "video",
-                    "path": f"/api/download/{file.name}",
+                    "path": f"/api/download/{relative_path_str}",
                     "filename": file.name,
                     "model": file.stem.split('_')[0] if '_' in file.stem else "video",
                     "timestamp": datetime.fromtimestamp(file.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
@@ -1061,11 +1072,42 @@ async def unload_all_models():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/download/{filename}")
+@app.get("/api/download/{filename:path}")
 async def download_file(filename: str):
+    """Download a file from outputs directory (supports subdirectories)
+    
+    Args:
+        filename: Relative path to file within /app/outputs (can include subdirectories)
+    
+    Returns:
+        File response with the requested file
+    
+    Examples:
+        /api/download/image.png -> /app/outputs/image.png
+        /api/download/FusionXi2v/video.mp4 -> /app/outputs/FusionXi2v/video.mp4
+    """
+    # Normalize path separators (handle both / and \)
+    filename = filename.replace('\\', '/')
+    
     filepath = Path("/app/outputs") / filename
+    
+    # Security: ensure the resolved path is still within outputs directory
+    # This prevents path traversal attacks (e.g., ../../etc/passwd)
+    try:
+        filepath = filepath.resolve()
+        outputs_dir = Path("/app/outputs").resolve()
+        filepath.relative_to(outputs_dir)
+    except (ValueError, RuntimeError):
+        raise HTTPException(status_code=403, detail="Access denied - path outside outputs directory")
+    
+    # Check if file exists
     if not filepath.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    
+    # Ensure it's a file, not a directory
+    if not filepath.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+    
     return FileResponse(filepath)
 
 if __name__ == "__main__":
