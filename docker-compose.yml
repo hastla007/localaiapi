@@ -32,7 +32,6 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: ai-api-local
-    network_mode: "host"
     ports:
       - "8000:8000"
     volumes:
