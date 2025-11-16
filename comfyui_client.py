@@ -22,7 +22,7 @@ import uuid
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import aiohttp
 import websockets
@@ -125,7 +125,7 @@ class ComfyUIClient:
         return workflow[node_id]
 
     @staticmethod
-    def _find_node_by_title(workflow: Dict[str, Any], title: str) -> tuple[str, Dict[str, Any]]:
+    def _find_node_by_title(workflow: Dict[str, Any], title: str) -> Tuple[str, Dict[str, Any]]:
         """Find node by title in API format workflow, returns (node_id, node)"""
 
         for node_id, node in workflow.items():
@@ -134,7 +134,7 @@ class ComfyUIClient:
         raise KeyError(f"Node with title '{title}' not found in workflow")
 
     @staticmethod
-    def _find_node_by_class(workflow: Dict[str, Any], class_type: str) -> tuple[str, Dict[str, Any]]:
+    def _find_node_by_class(workflow: Dict[str, Any], class_type: str) -> Tuple[str, Dict[str, Any]]:
         """Find node by class_type in API format workflow, returns (node_id, node)"""
 
         for node_id, node in workflow.items():

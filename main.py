@@ -409,7 +409,7 @@ def save_video(frames: List, prefix: str = "video", fps: int = 8) -> str:
 
 def decode_base64_image(base64_str: str) -> Image.Image:
     # Handle data URI format (e.g., "data:image/png;base64,...")
-    if "," in base64_str and base64_str.startswith("data:"):
+    if base64_str.startswith("data:") and "," in base64_str:
         base64_str = base64_str.split(",", 1)[1]
     # Remove any whitespace
     base64_str = base64_str.strip()
@@ -559,7 +559,7 @@ async def generate_flux(request: TextToImageRequest):
         return JSONResponse({
             "success": True, "model": "flux.1-dev", "image_path": filepath,
             "image_base64": encode_image_to_base64(image), "generation_time": round(generation_time, 2),
-            "parameters": request.dict()
+            "parameters": request.model_dump()
         })
     except Exception as e:
         metrics_tracker.add_log(f"ERROR in Flux: {str(e)}")
@@ -614,7 +614,7 @@ async def generate_sd3(request: TextToImageRequest):
             "image_path": filepath,
             "image_base64": encode_image_to_base64(image),
             "generation_time": round(generation_time, 2),
-            "parameters": request.dict(),
+            "parameters": request.model_dump(),
         })
     except Exception as e:
         metrics_tracker.add_log(f"ERROR in SD3: {str(e)}")
@@ -648,7 +648,7 @@ async def generate_pony(request: TextToImageRequest):
             "image_path": filepath,
             "image_base64": encode_image_to_base64(image),
             "generation_time": round(generation_time, 2),
-            "parameters": request.dict(),
+            "parameters": request.model_dump(),
         })
     except Exception as e:
         metrics_tracker.add_log(f"ERROR in Pony: {str(e)}")
@@ -788,7 +788,7 @@ async def controlnet_mistoline(request: ControlNetRequest):
             "image_path": filepath,
             "image_base64": encode_image_to_base64(image),
             "generation_time": round(generation_time, 2),
-            "parameters": request.dict(exclude={"control_image"}),
+            "parameters": request.model_dump(exclude={"control_image"}),
         })
     except Exception as e:
         metrics_tracker.add_log(f"ERROR in MistoLine ControlNet: {str(e)}")
@@ -826,7 +826,7 @@ async def controlnet_union(request: ControlNetRequest):
             "image_path": filepath,
             "image_base64": encode_image_to_base64(image),
             "generation_time": round(generation_time, 2),
-            "parameters": request.dict(exclude={"control_image"}),
+            "parameters": request.model_dump(exclude={"control_image"}),
         })
     except Exception as e:
         metrics_tracker.add_log(f"ERROR in ControlNet Union: {str(e)}")
@@ -894,7 +894,7 @@ async def generate_video_animatediff(request: AnimateDiffRequest):
             "fps": request.fps,
             "generation_time": round(generation_time, 2),
             "note": "AnimateDiff Lightning uses 4-8 steps for ultra-fast generation",
-            "parameters": request.dict()
+            "parameters": request.model_dump()
         })
         
     except Exception as e:
@@ -943,7 +943,7 @@ async def generate_video_wan21(request: WAN21Request):
             "fps": request.fps,
             "generation_time": round(generation_time, 2),
             "note": "Generated using native WAN 2.1 + LightX2V via ComfyUI",
-            "parameters": request.dict(),
+            "parameters": request.model_dump(),
         })
 
     except HTTPException:
@@ -1001,7 +1001,7 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
             # User provided audio file
             metrics_tracker.add_log("Using provided audio file")
             # Handle data URI format safely
-            if "," in request.audio and request.audio.startswith("data:"):
+            if request.audio.startswith("data:") and "," in request.audio:
                 audio_data = request.audio.split(",", 1)[1]
             else:
                 audio_data = request.audio
@@ -1090,7 +1090,7 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
                 "video_generation": "ComfyUI WAN 2.1 + LightX2V (GPU)",
                 "benefits": "No subprocess, no model duplication, faster & more reliable"
             },
-            "parameters": request.dict(exclude={"face_image", "audio"}),
+            "parameters": request.model_dump(exclude={"face_image", "audio"}),
         })
 
     except HTTPException:

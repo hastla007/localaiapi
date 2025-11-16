@@ -278,17 +278,18 @@ class ModelManager:
 
         if self.cuda_compatible:
             if model_key == "flux":
-                pipe.enable_model_cpu_offload()
+                # Use sequential CPU offload for Flux (more aggressive than model_cpu_offload)
+                if hasattr(pipe, "enable_sequential_cpu_offload"):
+                    pipe.enable_sequential_cpu_offload()
+                    skip_to_device = True
                 if hasattr(pipe, "enable_vae_slicing"):
                     pipe.enable_vae_slicing()
                 if hasattr(pipe, "enable_vae_tiling"):
                     pipe.enable_vae_tiling()
-                if hasattr(pipe, "enable_sequential_cpu_offload"):
-                    pipe.enable_sequential_cpu_offload()
-                skip_to_device = True
                 print("  Flux loaded with lowvram optimizations")
             else:
                 pipe.enable_model_cpu_offload()
+                skip_to_device = True
                 # Only enable VAE slicing for pipelines that support it
                 if hasattr(pipe, "enable_vae_slicing"):
                     pipe.enable_vae_slicing()
@@ -337,10 +338,13 @@ class ModelManager:
         
         dtype = self._select_dtype(torch.float16)
 
+        skip_to_device = False
+
         if model_key == "svd":
             pipe = StableVideoDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, variant="fp16")
             if self.cuda_compatible:
                 pipe.enable_model_cpu_offload()
+                skip_to_device = True
 
         elif model_key == "animatediff":
             # AnimateDiff Lightning
@@ -351,6 +355,7 @@ class ModelManager:
             if self.cuda_compatible:
                 pipe.enable_model_cpu_offload()
                 pipe.enable_vae_slicing()
+                skip_to_device = True
 
         elif model_key == "wan21":
             # WAN 2.1 proxy using CogVideoX (similar architecture)
@@ -359,7 +364,7 @@ class ModelManager:
             print("  For native WAN 2.1 + LightX2V LoRA:")
             print("  → Use ComfyUI workflow: https://www.nextdiffusion.ai/tutorials/fast-image-to-video-comfyui-wan2-2-lightx2v-lora")
             print("  → Or LightX2V framework: https://github.com/ModelTC/LightX2V")
-            
+
             if COGVIDEO_AVAILABLE:
                 pipe = CogVideoXImageToVideoPipeline.from_pretrained(model_id, torch_dtype=dtype)
                 print("  Using CogVideoX-5b-I2V (fast image-to-video)")
@@ -375,11 +380,13 @@ class ModelManager:
             if self.cuda_compatible:
                 pipe.enable_model_cpu_offload()
                 pipe.enable_vae_slicing()
+                skip_to_device = True
 
         else:
             raise ValueError(f"Unknown video generation model: {model_key}")
 
-        pipe = pipe.to(self.device)
+        if not skip_to_device:
+            pipe = pipe.to(self.device)
         print(f"  {model_info['name']} loaded successfully")
         return pipe
 
@@ -434,8 +441,9 @@ class ModelManager:
         model_id = model_info["model_id"]
 
         print(f"Loading {model_info['name']} from {model_id}...")
-        
+
         dtype = self._select_dtype(torch.float16)
+        skip_to_device = False
 
         controlnet = ControlNetModel.from_pretrained(model_id, torch_dtype=dtype)
         base_model_id = "stabilityai/stable-diffusion-xl-base-1.0"
@@ -447,13 +455,15 @@ class ModelManager:
         if self.cuda_compatible:
             pipe.enable_model_cpu_offload()
             pipe.enable_vae_slicing()
+            skip_to_device = True
 
             try:
                 pipe.enable_xformers_memory_efficient_attention()
             except Exception:
                 pass
 
-        pipe = pipe.to(self.device)
+        if not skip_to_device:
+            pipe = pipe.to(self.device)
         print(f"  {model_info['name']} loaded successfully")
         return pipe
     
