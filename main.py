@@ -243,7 +243,7 @@ def ensure_audio_format(audio_path: Path) -> Path:
         except FileNotFoundError:
             pass
 
-        converted_path.replace(audio_path)
+        converted_path.rename(audio_path)
         metrics_tracker.add_log(
             f"Audio normalized to 16kHz mono WAV: {audio_path.name}"
         )
@@ -957,14 +957,18 @@ async def generate_video_wan21(request: WAN21Request):
 @app.post("/api/talking-head/infinitetalk")
 async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
     """Generate talking head video using Hybrid InfiniteTalk + WAN 2.1
-    
+
     This hybrid approach:
     1. Uses lightweight face preprocessing (CPU, MediaPipe/OpenCV)
     2. Uses your TTS server for text-to-speech
     3. Uses your working ComfyUI WAN 2.1 for video generation
-    
+
     No subprocess complexity, no duplicate models, faster and more reliable!
     """
+
+    # Initialize cleanup variables at function scope
+    audio_path: Optional[Path] = None
+    preprocessed_face_path: Optional[str] = None
 
     try:
         metrics_tracker.add_log("🎭 Hybrid InfiniteTalk generation started")
@@ -973,11 +977,11 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
         # === STEP 1: Prepare Face Image (CPU-based preprocessing) ===
         metrics_tracker.add_log("Step 1: Face image preprocessing...")
         face_image = decode_base64_image(request.face_image)
-        
+
         # Load hybrid InfiniteTalk preprocessor (lightweight, CPU-only)
         from infinitetalk_hybrid import get_hybrid_infinitetalk_pipeline
         preprocessor = get_hybrid_infinitetalk_pipeline(device="cpu")
-        
+
         # Preprocess face: detect, crop, resize to portrait orientation
         preprocessed_face_path = preprocessor(
             image=face_image,
@@ -985,14 +989,13 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
             num_frames=request.num_frames,
             fps=request.fps
         )
-        
+
         # Load the preprocessed face
         preprocessed_face = Image.open(preprocessed_face_path)
         metrics_tracker.add_log("✓ Face preprocessing complete (576x1024 portrait)")
 
         # === STEP 2: Handle Audio (TTS or upload) ===
         metrics_tracker.add_log("Step 2: Audio processing...")
-        audio_path: Optional[Path] = None
         
         if request.audio:
             # User provided audio file
@@ -1066,19 +1069,10 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
             fps=request.fps,
             seed=request.seed,
         )
-        
+
         metrics_tracker.add_log(f"✓ Video generated: {video_path}")
 
-        # === STEP 4: Cleanup Temporary Files ===
-        if audio_path and audio_path.exists():
-            audio_path.unlink()
-            metrics_tracker.add_log("✓ Cleaned up temporary audio file")
-        
-        if Path(preprocessed_face_path).exists():
-            Path(preprocessed_face_path).unlink()
-            metrics_tracker.add_log("✓ Cleaned up temporary face image")
-
-        # === STEP 5: Return Results ===
+        # === STEP 4: Return Results ===
         generation_time = time.time() - start_time
         metrics_tracker.log_request("infinitetalk-hybrid", generation_time, "talking-head")
 
@@ -1105,9 +1099,24 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
         metrics_tracker.add_log(f"❌ ERROR in Hybrid InfiniteTalk: {str(exc)}")
         traceback.print_exc()
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Hybrid InfiniteTalk generation failed: {str(exc)}"
         )
+    finally:
+        # === Cleanup Temporary Files (always runs, even on error) ===
+        if audio_path and audio_path.exists():
+            try:
+                audio_path.unlink()
+                metrics_tracker.add_log("✓ Cleaned up temporary audio file")
+            except Exception as cleanup_error:
+                metrics_tracker.add_log(f"⚠️ Failed to cleanup audio file: {cleanup_error}")
+
+        if preprocessed_face_path and Path(preprocessed_face_path).exists():
+            try:
+                Path(preprocessed_face_path).unlink()
+                metrics_tracker.add_log("✓ Cleaned up temporary face image")
+            except Exception as cleanup_error:
+                metrics_tracker.add_log(f"⚠️ Failed to cleanup face image: {cleanup_error}")
 
 # ==================== COMFYUI STATUS ====================
 

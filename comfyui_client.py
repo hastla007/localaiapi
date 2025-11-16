@@ -81,6 +81,16 @@ class ComfyUIClient:
             self._session = None
 
     # ------------------------------------------------------------------
+    # Async context manager support
+    async def __aenter__(self) -> "ComfyUIClient":
+        """Support for async with statement"""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Ensure session is closed when exiting async with block"""
+        await self.close()
+
+    # ------------------------------------------------------------------
     # Health checks
     async def health_check(self) -> bool:
         try:

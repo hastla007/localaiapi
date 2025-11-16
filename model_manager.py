@@ -220,6 +220,9 @@ class ModelManager:
     def _cleanup_old_models(self):
         if len(self.loaded_models) >= self.max_loaded_models:
             sorted_models = sorted(self.model_last_used.items(), key=lambda x: x[1])
+            if not sorted_models:
+                print("Warning: No models to unload despite reaching limit")
+                return
             oldest_model = sorted_models[0][0]
             print(f"Unloading {oldest_model} to make room for new model")
             self.unload_model(oldest_model)
