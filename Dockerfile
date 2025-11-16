@@ -3,7 +3,8 @@ FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    HF_HOME=/root/.cache/huggingface \
+    HF_HOME=/app/cache \
+    TRANSFORMERS_CACHE=/app/cache \
     TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0" \
     CUDA_LAUNCH_BLOCKING=0 \
     TORCH_USE_CUDA_DSA=1 \
