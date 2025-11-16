@@ -260,10 +260,17 @@ class ComfyUIClient:
         prompt = (prompt or "smooth camera movement, high quality").strip()
 
         # Resize image to match workflow expectations
-        target_width = 1024 if image.width >= image.height else 576
-        target_height = 576 if image.width >= image.height else 1024
+        # Use explicit orientation detection for better handling
+        is_landscape = image.width > image.height
+        is_portrait = image.height > image.width
+        # For square images, default to landscape
+        if is_landscape or (image.width == image.height):
+            target_width, target_height = 1024, 576
+        else:  # portrait
+            target_width, target_height = 576, 1024
+
         if image.width != target_width or image.height != target_height:
-            image = image.resize((target_width, target_height))
+            image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
         uploaded_name = await self.upload_image(image, filename="wan21_input.png")
 

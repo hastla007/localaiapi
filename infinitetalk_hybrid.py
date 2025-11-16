@@ -82,33 +82,39 @@ class HybridInfiniteTalkPipeline:
                     
                     # Expand bbox for portrait framing (more headroom)
                     expansion = 0.5  # 50% expansion for shoulders/headroom
-                    x = max(0, int(x - w * expansion / 2))
-                    y = max(0, int(y - h * expansion))
-                    w = int(w * (1 + expansion))
-                    h = int(h * (1 + expansion * 1.5))
-                    
+                    x_expanded = x - int(w * expansion / 2)
+                    y_expanded = y - int(h * expansion)
+                    w_expanded = int(w * (1 + expansion))
+                    h_expanded = int(h * (1 + expansion * 1.5))
+
                     # Ensure portrait aspect ratio
                     aspect_ratio = target_height / target_width
-                    if h / w < aspect_ratio:
+                    if h_expanded / w_expanded < aspect_ratio:
                         # Too wide, increase height
-                        new_h = int(w * aspect_ratio)
-                        y = max(0, y - (new_h - h) // 2)
-                        h = new_h
+                        new_h = int(w_expanded * aspect_ratio)
+                        y_expanded = y_expanded - (new_h - h_expanded) // 2
+                        h_expanded = new_h
                     else:
                         # Too tall, increase width
-                        new_w = int(h / aspect_ratio)
-                        x = max(0, x - (new_w - w) // 2)
-                        w = new_w
-                    
-                    # Ensure bounds
-                    x = max(0, x)
-                    y = max(0, y)
-                    w = min(w, iw - x)
-                    h = min(h, ih - y)
-                    
-                    # Crop to face region
-                    image = image.crop((x, y, x + w, y + h))
-                    logger.info(f"✓ Face detected and cropped: {w}x{h}")
+                        new_w = int(h_expanded / aspect_ratio)
+                        x_expanded = x_expanded - (new_w - w_expanded) // 2
+                        w_expanded = new_w
+
+                    # Ensure bounds - clip to image dimensions
+                    x = max(0, x_expanded)
+                    y = max(0, y_expanded)
+                    # Adjust width/height if we hit the edges
+                    w = min(w_expanded, iw - x)
+                    h = min(h_expanded, ih - y)
+
+                    # Final sanity check - ensure we have valid dimensions
+                    if w <= 0 or h <= 0:
+                        logger.warning(f"Invalid crop dimensions after bounds check: {w}x{h}, using center crop")
+                        image = self._center_crop_portrait(image, target_width, target_height)
+                    else:
+                        # Crop to face region
+                        image = image.crop((x, y, x + w, y + h))
+                        logger.info(f"✓ Face detected and cropped: {w}x{h}")
                 else:
                     logger.info("No face detected, using center crop")
                     # Fallback to center crop
