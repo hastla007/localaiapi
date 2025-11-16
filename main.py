@@ -41,6 +41,16 @@ model_manager = ModelManager()
 # TTS configuration
 TTS_SERVER_URL = os.getenv("TTS_SERVER_URL", "http://10.120.2.5:4321/audio/speech/long")
 
+# ==================== APPLICATION LIFECYCLE ====================
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up resources on application shutdown"""
+    from comfyui_client import _comfyui_client
+    if _comfyui_client is not None:
+        await _comfyui_client.close()
+        print("ComfyUI client session closed")
+
 # ==================== METRICS & LOGGING ====================
 
 class MetricsTracker:
@@ -309,16 +319,16 @@ async def tts_status():
 # ==================== REQUEST MODELS ====================
 
 class TextToImageRequest(BaseModel):
-    prompt: str = Field(..., description="Text prompt for image generation")
+    prompt: str = Field(..., min_length=1, description="Text prompt for image generation")
     negative_prompt: Optional[str] = Field("", description="Negative prompt")
     width: Optional[int] = Field(1024, ge=512, le=2048)
     height: Optional[int] = Field(1024, ge=512, le=2048)
     num_inference_steps: Optional[int] = Field(30, ge=1, le=100)
     guidance_scale: Optional[float] = Field(7.5, ge=1.0, le=20.0)
-    seed: Optional[int] = Field(None)
+    seed: Optional[int] = Field(None, ge=0, description="Random seed (0 or positive integer)")
 
 class ControlNetRequest(BaseModel):
-    prompt: str
+    prompt: str = Field(..., min_length=1, description="Text prompt for generation")
     control_image: str
     negative_prompt: Optional[str] = Field("")
     controlnet_conditioning_scale: Optional[float] = Field(1.0, ge=0.1, le=2.0)
@@ -326,12 +336,12 @@ class ControlNetRequest(BaseModel):
     height: Optional[int] = Field(1024, ge=512, le=2048)
     num_inference_steps: Optional[int] = Field(30, ge=1, le=100)
     guidance_scale: Optional[float] = Field(7.5, ge=1.0, le=20.0)
-    seed: Optional[int] = Field(None)
+    seed: Optional[int] = Field(None, ge=0, description="Random seed (0 or positive integer)")
 
 class ImageToTextRequest(BaseModel):
     image: str
     prompt: Optional[str] = Field("Describe this image in detail.")
-    max_length: Optional[int] = Field(200, ge=50, le=500)
+    max_length: Optional[int] = Field(200, ge=50, le=256, description="Maximum caption length (capped at 256 tokens)")
 
 class VideoGenerationRequest(BaseModel):
     image: Optional[str] = Field(None)
@@ -343,7 +353,7 @@ class VideoGenerationRequest(BaseModel):
     noise_aug_strength: Optional[float] = Field(0.02, ge=0.0, le=1.0)
 
 class AnimateDiffRequest(BaseModel):
-    prompt: str = Field(..., description="Text prompt for video")
+    prompt: str = Field(..., min_length=1, description="Text prompt for video")
     negative_prompt: Optional[str] = Field("")
     num_frames: Optional[int] = Field(16, ge=8, le=32)
     num_inference_steps: Optional[int] = Field(8, ge=4, le=20, description="Lightning: use 4-8 steps")
@@ -351,7 +361,7 @@ class AnimateDiffRequest(BaseModel):
     fps: Optional[int] = Field(8, ge=5, le=30)
     width: Optional[int] = Field(512, ge=256, le=768)
     height: Optional[int] = Field(512, ge=256, le=768)
-    seed: Optional[int] = Field(None)
+    seed: Optional[int] = Field(None, ge=0, description="Random seed (0 or positive integer)")
 
 class WAN21Request(BaseModel):
     image: str = Field(..., description="Base64 encoded image for image-to-video")
@@ -360,17 +370,17 @@ class WAN21Request(BaseModel):
     num_inference_steps: Optional[int] = Field(6, ge=4, le=12, description="LightX2V: 4-8 steps optimal")
     guidance_scale: Optional[float] = Field(1.5, ge=1.0, le=3.5, description="WAN 2.1: low CFG for speed")
     fps: Optional[int] = Field(24, ge=16, le=30)
-    seed: Optional[int] = Field(None)
+    seed: Optional[int] = Field(None, ge=0, description="Random seed (0 or positive integer)")
 
 class InfiniteTalkRequest(BaseModel):
     face_image: str = Field(..., description="Base64 encoded face image")
     audio: Optional[str] = Field(None, description="Base64 encoded audio file (WAV/MP3)")
-    text: Optional[str] = Field(None, description="Text to synthesize speech (if no audio)")
+    text: Optional[str] = Field(None, min_length=1, description="Text to synthesize speech (if no audio)")
     num_frames: Optional[int] = Field(120, ge=30, le=300, description="Video length in frames")
     fps: Optional[int] = Field(25, ge=15, le=30)
     expression_scale: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="Expression intensity")
     head_motion_scale: Optional[float] = Field(1.0, ge=0.5, le=2.0, description="Head movement intensity")
-    seed: Optional[int] = Field(None)
+    seed: Optional[int] = Field(None, ge=0, description="Random seed (0 or positive integer)")
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -394,6 +404,9 @@ def save_video(frames: List, prefix: str = "video", fps: int = 8) -> str:
 
     if not frames:
         raise ValueError("Cannot save video: no frames provided")
+
+    if fps <= 0:
+        raise ValueError(f"FPS must be positive, got {fps}")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     video_path = f"/app/outputs/{prefix}_{timestamp}.mp4"
@@ -460,8 +473,19 @@ def save_video(frames: List, prefix: str = "video", fps: int = 8) -> str:
 
     return video_path
 
-def decode_base64_image(base64_str: str) -> Image.Image:
-    """Decode base64 string to PIL Image with proper error handling"""
+def decode_base64_image(base64_str: str, max_size_mb: int = 50) -> Image.Image:
+    """Decode base64 string to PIL Image with proper error handling and size limits
+
+    Args:
+        base64_str: Base64 encoded image string (with or without data URI prefix)
+        max_size_mb: Maximum allowed image size in megabytes (default: 50MB)
+
+    Returns:
+        PIL Image object in RGB format
+
+    Raises:
+        ValueError: If image is invalid, too large, or improperly formatted
+    """
     if not base64_str or not isinstance(base64_str, str):
         raise ValueError("Image data must be a non-empty string")
 
@@ -484,6 +508,11 @@ def decode_base64_image(base64_str: str) -> Image.Image:
 
     if len(image_data) == 0:
         raise ValueError("Decoded image data is empty")
+
+    # Check size to prevent OOM attacks
+    size_mb = len(image_data) / (1024 * 1024)
+    if size_mb > max_size_mb:
+        raise ValueError(f"Image too large: {size_mb:.1f}MB (maximum allowed: {max_size_mb}MB)")
 
     try:
         image = Image.open(BytesIO(image_data))
@@ -646,6 +675,10 @@ def list_models():
 @app.post("/api/generate/flux")
 async def generate_flux(request: TextToImageRequest):
     try:
+        # Validate prompt is not just whitespace
+        if not request.prompt.strip():
+            raise HTTPException(status_code=400, detail="Prompt cannot be empty or whitespace only")
+
         metrics_tracker.add_log(f"Flux generation started: {request.prompt[:50]}...")
         start_time = time.time()
         pipe = model_manager.load_model("flux", "text-to-image")
@@ -672,6 +705,10 @@ async def generate_flux(request: TextToImageRequest):
 @app.post("/api/generate/sdxl")
 async def generate_sdxl(request: TextToImageRequest):
     try:
+        # Validate prompt is not just whitespace
+        if not request.prompt.strip():
+            raise HTTPException(status_code=400, detail="Prompt cannot be empty or whitespace only")
+
         metrics_tracker.add_log(f"SDXL generation started")
         start_time = time.time()
         pipe = model_manager.load_model("sdxl", "text-to-image")
@@ -694,6 +731,10 @@ async def generate_sdxl(request: TextToImageRequest):
 @app.post("/api/generate/sd3")
 async def generate_sd3(request: TextToImageRequest):
     try:
+        # Validate prompt is not just whitespace
+        if not request.prompt.strip():
+            raise HTTPException(status_code=400, detail="Prompt cannot be empty or whitespace only")
+
         metrics_tracker.add_log("SD3 generation started")
         start_time = time.time()
         pipe = model_manager.load_model("sd3", "text-to-image")
@@ -728,6 +769,10 @@ async def generate_sd3(request: TextToImageRequest):
 @app.post("/api/generate/pony")
 async def generate_pony(request: TextToImageRequest):
     try:
+        # Validate prompt is not just whitespace
+        if not request.prompt.strip():
+            raise HTTPException(status_code=400, detail="Prompt cannot be empty or whitespace only")
+
         metrics_tracker.add_log("Pony generation started")
         start_time = time.time()
         pipe = model_manager.load_model("pony", "text-to-image")
@@ -965,6 +1010,10 @@ async def generate_video_svd(request: VideoGenerationRequest):
 async def generate_video_animatediff(request: AnimateDiffRequest):
     """AnimateDiff Lightning - Ultra-fast text-to-video (4-8 steps)"""
     try:
+        # Validate prompt is not just whitespace
+        if not request.prompt.strip():
+            raise HTTPException(status_code=400, detail="Prompt cannot be empty or whitespace only")
+
         metrics_tracker.add_log(f"AnimateDiff Lightning started: {request.prompt[:50]}...")
         start_time = time.time()
         
