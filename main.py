@@ -19,6 +19,7 @@ import asyncio
 import aiohttp
 import traceback
 import subprocess
+import cv2
 
 # Import model managers
 from model_manager import ModelManager
@@ -389,7 +390,7 @@ def save_image(image: Image.Image, prefix: str = "generated") -> str:
     return str(filepath)
 
 def save_video(frames: List, prefix: str = "video", fps: int = 8) -> str:
-    import cv2
+    """Save video frames to MP4 file with improved codec compatibility and format handling"""
 
     if not frames:
         raise ValueError("Cannot save video: no frames provided")
@@ -400,22 +401,58 @@ def save_video(frames: List, prefix: str = "video", fps: int = 8) -> str:
     # Ensure outputs directory exists
     Path("/app/outputs").mkdir(parents=True, exist_ok=True)
 
+    # Convert PIL Images to numpy arrays if needed
     if isinstance(frames[0], Image.Image):
         frames = [np.array(frame) for frame in frames]
 
     height, width = frames[0].shape[:2]
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
 
-    if not out.isOpened():
-        raise RuntimeError(f"Failed to create video file at {video_path}")
+    # Try codecs in order of preference: avc1 (H.264), mp4v (MPEG-4), fallback to XVID
+    codecs_to_try = [
+        ('avc1', 'H.264 (best quality)'),
+        ('mp4v', 'MPEG-4'),
+        ('XVID', 'Xvid (fallback)')
+    ]
+
+    out = None
+    selected_codec = None
+
+    for codec, codec_name in codecs_to_try:
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            out = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
+            if out.isOpened():
+                selected_codec = codec_name
+                metrics_tracker.add_log(f"Using video codec: {codec_name}")
+                break
+            out.release()
+        except Exception as e:
+            metrics_tracker.add_log(f"Codec {codec} failed: {str(e)}")
+            if out:
+                out.release()
+            continue
+
+    if not out or not out.isOpened():
+        raise RuntimeError(f"Failed to create video file at {video_path} - no compatible codec found")
 
     try:
         for frame in frames:
-            if len(frame.shape) == 3 and frame.shape[2] == 3:
-                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            # Handle different color formats properly
+            if len(frame.shape) == 2:
+                # Grayscale - convert to BGR
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            elif len(frame.shape) == 3:
+                if frame.shape[2] == 3:
+                    # RGB - convert to BGR
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                elif frame.shape[2] == 4:
+                    # RGBA - convert to BGR (drop alpha channel)
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+                else:
+                    raise ValueError(f"Unsupported number of channels: {frame.shape[2]}")
             else:
-                frame_bgr = frame
+                raise ValueError(f"Invalid frame shape: {frame.shape}")
+
             out.write(frame_bgr)
     finally:
         # Always release the VideoWriter, even if an error occurs
@@ -907,6 +944,7 @@ async def generate_video_svd(request: VideoGenerationRequest):
         metrics_tracker.add_log("SVD video generation started")
         start_time = time.time()
         if not request.image:
+            metrics_tracker.add_log("ERROR in SVD: Image required but not provided")
             raise HTTPException(status_code=400, detail="Image required for SVD")
         image = decode_base64_image(request.image)
         image = image.resize((1024, 576))
