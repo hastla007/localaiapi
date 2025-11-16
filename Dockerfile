@@ -47,6 +47,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY model_manager.py .
 COPY comfyui_client.py .
+COPY infinitetalk_hybrid.py .
 COPY infinitetalk_wrapper.py .
 COPY templates/ /app/templates/
 COPY comfyui_workflows/ /app/comfyui_workflows/
