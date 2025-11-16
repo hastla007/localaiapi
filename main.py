@@ -364,37 +364,60 @@ def save_image(image: Image.Image, prefix: str = "generated") -> str:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{prefix}_{timestamp}.png"
     filepath = Path("/app/outputs") / filename
-    image.save(filepath)
+
+    # Ensure outputs directory exists
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        image.save(filepath)
+    except Exception as e:
+        raise RuntimeError(f"Failed to save image to {filepath}: {str(e)}")
+
     return str(filepath)
 
 def save_video(frames: List, prefix: str = "video", fps: int = 8) -> str:
     import cv2
-    
+
+    if not frames:
+        raise ValueError("Cannot save video: no frames provided")
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     video_path = f"/app/outputs/{prefix}_{timestamp}.mp4"
-    
+
+    # Ensure outputs directory exists
+    Path("/app/outputs").mkdir(parents=True, exist_ok=True)
+
     if isinstance(frames[0], Image.Image):
         frames = [np.array(frame) for frame in frames]
-    
+
     height, width = frames[0].shape[:2]
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(video_path, fourcc, fps, (width, height))
-    
+
+    if not out.isOpened():
+        raise RuntimeError(f"Failed to create video file at {video_path}")
+
     for frame in frames:
-        if frame.shape[2] == 3:
+        if len(frame.shape) == 3 and frame.shape[2] == 3:
             frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         else:
             frame_bgr = frame
         out.write(frame_bgr)
-    
+
     out.release()
     return video_path
 
 def decode_base64_image(base64_str: str) -> Image.Image:
-    if "," in base64_str:
-        base64_str = base64_str.split(",")[1]
-    image_data = base64.b64decode(base64_str)
-    return Image.open(BytesIO(image_data)).convert("RGB")
+    # Handle data URI format (e.g., "data:image/png;base64,...")
+    if "," in base64_str and base64_str.startswith("data:"):
+        base64_str = base64_str.split(",", 1)[1]
+    # Remove any whitespace
+    base64_str = base64_str.strip()
+    try:
+        image_data = base64.b64decode(base64_str)
+        return Image.open(BytesIO(image_data)).convert("RGB")
+    except Exception as e:
+        raise ValueError(f"Invalid base64 image data: {str(e)}")
 
 def encode_image_to_base64(image: Image.Image) -> str:
     buffered = BytesIO()
@@ -549,7 +572,7 @@ async def generate_sdxl(request: TextToImageRequest):
         start_time = time.time()
         pipe = model_manager.load_model("sdxl", "text-to-image")
         generator = None
-        if request.seed:
+        if request.seed is not None:
             generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
         image = pipe(prompt=request.prompt, negative_prompt=request.negative_prompt, width=request.width,
                     height=request.height, num_inference_steps=request.num_inference_steps,
@@ -974,8 +997,16 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
         if request.audio:
             # User provided audio file
             metrics_tracker.add_log("Using provided audio file")
-            audio_data = request.audio.split(",", maxsplit=1)[1] if "," in request.audio else request.audio
-            audio_bytes = base64.b64decode(audio_data)
+            # Handle data URI format safely
+            if "," in request.audio and request.audio.startswith("data:"):
+                audio_data = request.audio.split(",", 1)[1]
+            else:
+                audio_data = request.audio
+            audio_data = audio_data.strip()
+            try:
+                audio_bytes = base64.b64decode(audio_data)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid base64 audio data: {str(e)}")
             audio_path = Path("/app/outputs") / f"temp_audio_{int(time.time())}.wav"
             with open(audio_path, "wb") as audio_file:
                 audio_file.write(audio_bytes)
