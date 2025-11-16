@@ -41,15 +41,31 @@ model_manager = ModelManager()
 # TTS configuration
 TTS_SERVER_URL = os.getenv("TTS_SERVER_URL", "http://10.120.2.5:4321/audio/speech/long")
 
+# Module-level session for TTS requests
+_tts_session: Optional[aiohttp.ClientSession] = None
+
+async def get_tts_session() -> aiohttp.ClientSession:
+    """Get or create a reusable aiohttp session for TTS requests"""
+    global _tts_session
+    if _tts_session is None or _tts_session.closed:
+        _tts_session = aiohttp.ClientSession()
+    return _tts_session
+
 # ==================== APPLICATION LIFECYCLE ====================
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up resources on application shutdown"""
+    global _tts_session
     from comfyui_client import _comfyui_client
+
     if _comfyui_client is not None:
         await _comfyui_client.close()
         print("ComfyUI client session closed")
+
+    if _tts_session is not None and not _tts_session.closed:
+        await _tts_session.close()
+        print("TTS client session closed")
 
 # ==================== METRICS & LOGGING ====================
 
@@ -123,100 +139,104 @@ async def text_to_speech(
     metrics_tracker.add_log(f"Submitting TTS job to: {TTS_SERVER_URL}")
 
     try:
-        async with aiohttp.ClientSession() as session:
-            # Step 1: Submit job
-            async with session.post(
-                TTS_SERVER_URL,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"TTS job submission failed ({response.status}): {error_text}")
+        session = await get_tts_session()
+        # Step 1: Submit job
+        async with session.post(
+            TTS_SERVER_URL,
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as response:
+            if response.status != 200:
+                error_text = await response.text()
+                raise Exception(f"TTS job submission failed ({response.status}): {error_text}")
 
-                job_data = await response.json()
+            job_data = await response.json()
 
-                # Handle array response [{}] or direct object {}
-                if isinstance(job_data, list):
-                    job_data = job_data[0]
+            # Handle array response [{}] or direct object {}
+            if isinstance(job_data, list):
+                job_data = job_data[0]
 
-                job_id = job_data.get("job_id")
-                if not job_id:
-                    raise Exception("TTS server did not return job_id")
+            job_id = job_data.get("job_id")
+            if not job_id:
+                raise Exception("TTS server did not return job_id")
 
-                metrics_tracker.add_log(f"TTS job submitted: {job_id}")
+            metrics_tracker.add_log(f"TTS job submitted: {job_id}")
 
-                # Extract base URL (remove /audio/speech/long)
+            # Extract base URL (remove /audio/speech/long)
+            if '/audio/speech/long' in TTS_SERVER_URL:
                 base_url = TTS_SERVER_URL.rsplit('/audio/speech/long', 1)[0]
-                details_url = f"{base_url}/audio/speech/long/{job_id}/details"
+            else:
+                # Handle alternative URL formats
+                raise Exception(f"TTS_SERVER_URL has unexpected format: {TTS_SERVER_URL}")
+            details_url = f"{base_url}/audio/speech/long/{job_id}/details"
 
-                metrics_tracker.add_log(f"Polling status at: {details_url}")
+        metrics_tracker.add_log(f"Polling status at: {details_url}")
 
-            # Step 2: Poll for completion
-            max_attempts = 120  # 2 minutes max (120 * 1 second)
-            attempt = 0
+        # Step 2: Poll for completion
+        max_attempts = 120  # 2 minutes max (120 * 1 second)
+        attempt = 0
 
-            while attempt < max_attempts:
-                await asyncio.sleep(1)  # Poll every 1 second
-                attempt += 1
+        while attempt < max_attempts:
+            await asyncio.sleep(1)  # Poll every 1 second
+            attempt += 1
 
-                async with session.get(
-                    details_url,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as status_response:
-                    if status_response.status != 200:
-                        continue
+            async with session.get(
+                details_url,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as status_response:
+                if status_response.status != 200:
+                    continue
 
-                    status_data = await status_response.json()
+                status_data = await status_response.json()
 
-                    # Handle array response
-                    if isinstance(status_data, list):
-                        status_data = status_data[0]
+                # Handle array response
+                if isinstance(status_data, list):
+                    status_data = status_data[0]
 
-                    metadata = status_data.get("metadata", {})
-                    status = metadata.get("status")
+                metadata = status_data.get("metadata", {})
+                status = metadata.get("status")
 
-                    if status == "completed":
-                        audio_file_path = metadata.get("audio_file_path")
-                        if not audio_file_path:
-                            raise Exception("TTS completed but no audio_file_path returned")
+                if status == "completed":
+                    audio_file_path = metadata.get("audio_file_path")
+                    if not audio_file_path:
+                        raise Exception("TTS completed but no audio_file_path returned")
 
-                        metrics_tracker.add_log(f"TTS completed: {audio_file_path}")
+                    metrics_tracker.add_log(f"TTS completed: {audio_file_path}")
 
-                        # Step 3: Download the audio file
-                        audio_url = f"{base_url}/{audio_file_path}"
-                        metrics_tracker.add_log(f"Downloading audio from: {audio_url}")
+                    # Step 3: Download the audio file
+                    audio_url = f"{base_url}/{audio_file_path}"
+                    metrics_tracker.add_log(f"Downloading audio from: {audio_url}")
 
-                        async with session.get(
-                            audio_url,
-                            timeout=aiohttp.ClientTimeout(total=30)
-                        ) as audio_response:
-                            if audio_response.status != 200:
-                                raise Exception(f"Failed to download audio: {audio_response.status}")
+                    async with session.get(
+                        audio_url,
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as audio_response:
+                        if audio_response.status != 200:
+                            raise Exception(f"Failed to download audio: {audio_response.status}")
 
-                            audio_bytes = await audio_response.read()
-                            metrics_tracker.add_log(f"TTS audio downloaded: {len(audio_bytes)} bytes")
-                            return audio_bytes
+                        audio_bytes = await audio_response.read()
+                        metrics_tracker.add_log(f"TTS audio downloaded: {len(audio_bytes)} bytes")
+                        return audio_bytes
 
-                    elif status == "failed":
-                        error = metadata.get("error", "Unknown error")
-                        raise Exception(f"TTS job failed: {error}")
+                elif status == "failed":
+                    error = metadata.get("error", "Unknown error")
+                    raise Exception(f"TTS job failed: {error}")
 
-                    elif status in ["pending", "processing"]:
-                        # Continue polling
-                        if attempt % 10 == 0:  # Log every 10 seconds
-                            completed_chunks = metadata.get("completed_chunks", 0)
-                            total_chunks = metadata.get("total_chunks", 1)
-                            metrics_tracker.add_log(
-                                f"TTS processing... ({completed_chunks}/{total_chunks} chunks, attempt {attempt})"
-                            )
-                        continue
-                    else:
-                        metrics_tracker.add_log(f"Unknown TTS status: {status}")
-                        continue
+                elif status in ["pending", "processing"]:
+                    # Continue polling
+                    if attempt % 10 == 0:  # Log every 10 seconds
+                        completed_chunks = metadata.get("completed_chunks", 0)
+                        total_chunks = metadata.get("total_chunks", 1)
+                        metrics_tracker.add_log(
+                            f"TTS processing... ({completed_chunks}/{total_chunks} chunks, attempt {attempt})"
+                        )
+                    continue
+                else:
+                    metrics_tracker.add_log(f"Unknown TTS status: {status}")
+                    continue
 
-            # Timeout
-            raise Exception(f"TTS job timeout after {max_attempts} seconds")
+        # Timeout
+        raise Exception(f"TTS job timeout after {max_attempts} seconds")
 
     except aiohttp.ClientConnectorError:
         raise Exception(f"Cannot connect to TTS server at {TTS_SERVER_URL}. Check network/firewall.")
@@ -299,16 +319,16 @@ def ensure_audio_format(audio_path: Path) -> Path:
 async def tts_status():
     """Check TTS server availability"""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(
-                TTS_SERVER_URL.replace('/audio/speech/long', '/'),
-                timeout=aiohttp.ClientTimeout(total=5)
-            ) as response:
-                return {
-                    "available": True,
-                    "url": TTS_SERVER_URL,
-                    "status_code": response.status
-                }
+        session = await get_tts_session()
+        async with session.get(
+            TTS_SERVER_URL.replace('/audio/speech/long', '/'),
+            timeout=aiohttp.ClientTimeout(total=5)
+        ) as response:
+            return {
+                "available": True,
+                "url": TTS_SERVER_URL,
+                "status_code": response.status
+            }
     except Exception as e:
         return {
             "available": False,
@@ -414,9 +434,16 @@ def save_video(frames: List, prefix: str = "video", fps: int = 8) -> str:
     # Ensure outputs directory exists
     Path("/app/outputs").mkdir(parents=True, exist_ok=True)
 
-    # Convert PIL Images to numpy arrays if needed
-    if isinstance(frames[0], Image.Image):
-        frames = [np.array(frame) for frame in frames]
+    # Normalize all frames to numpy arrays, handling mixed types
+    normalized_frames = []
+    for i, frame in enumerate(frames):
+        if isinstance(frame, Image.Image):
+            normalized_frames.append(np.array(frame))
+        elif isinstance(frame, np.ndarray):
+            normalized_frames.append(frame)
+        else:
+            raise ValueError(f"Frame {i} has unsupported type: {type(frame)}")
+    frames = normalized_frames
 
     height, width = frames[0].shape[:2]
 
@@ -551,13 +578,23 @@ async def dashboard_results():
     """Get all generated files from outputs directory (including subdirectories)"""
     outputs_dir = Path("/app/outputs")
     results = []
-    
+
     if outputs_dir.exists():
         # Use rglob to recursively find all files including in subdirectories
         all_files = [f for f in outputs_dir.rglob("*") if f.is_file()]
-        
-        # Sort by modification time and take last 50
-        for file in sorted(all_files, key=lambda x: x.stat().st_mtime, reverse=True)[:50]:
+
+        # Sort by modification time and take last 50, handling race conditions
+        sorted_files = []
+        for f in all_files:
+            try:
+                sorted_files.append((f, f.stat().st_mtime))
+            except (FileNotFoundError, OSError):
+                # File was deleted between listing and stat, skip it
+                continue
+
+        sorted_files.sort(key=lambda x: x[1], reverse=True)
+
+        for file, mtime in sorted_files[:50]:
             # Get relative path from outputs directory
             relative_path = file.relative_to(outputs_dir)
             
@@ -570,8 +607,8 @@ async def dashboard_results():
                     "path": f"/api/download/{relative_path_str}",
                     "thumbnail": f"/api/download/{relative_path_str}",
                     "filename": file.name,
-                    "model": file.stem.split('_')[0],
-                    "timestamp": datetime.fromtimestamp(file.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+                    "model": file.stem.split('_')[0] if '_' in file.stem else file.stem,
+                    "timestamp": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"),
                     "prompt": ""
                 })
             elif file.suffix in ['.mp4']:
@@ -580,7 +617,7 @@ async def dashboard_results():
                     "path": f"/api/download/{relative_path_str}",
                     "filename": file.name,
                     "model": file.stem.split('_')[0] if '_' in file.stem else "video",
-                    "timestamp": datetime.fromtimestamp(file.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                    "timestamp": datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
                 })
     
     return {"results": results}
@@ -631,6 +668,14 @@ async def save_settings(settings: dict):
     if "model_timeout" in settings:
         if not isinstance(settings["model_timeout"], int) or settings["model_timeout"] < 0:
             raise HTTPException(status_code=400, detail="model_timeout must be a non-negative integer")
+
+    if "cuda_device" in settings:
+        cuda_device = settings["cuda_device"]
+        if not isinstance(cuda_device, str):
+            raise HTTPException(status_code=400, detail="cuda_device must be a string")
+        # Validate format: should be comma-separated digits
+        if not all(part.strip().isdigit() for part in cuda_device.split(",")):
+            raise HTTPException(status_code=400, detail="cuda_device must be comma-separated device IDs (e.g., '0' or '0,1')")
 
     if "api_port" in settings:
         if not isinstance(settings["api_port"], int) or not (1 <= settings["api_port"] <= 65535):
@@ -1258,17 +1303,21 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
         )
     finally:
         # === Cleanup Temporary Files (always runs, even on error) ===
-        if audio_path and audio_path.exists():
+        if audio_path:
             try:
                 audio_path.unlink()
                 metrics_tracker.add_log("✓ Cleaned up temporary audio file")
+            except FileNotFoundError:
+                pass  # Already deleted, ignore
             except Exception as cleanup_error:
                 metrics_tracker.add_log(f"⚠️ Failed to cleanup audio file: {cleanup_error}")
 
-        if preprocessed_face_path and Path(preprocessed_face_path).exists():
+        if preprocessed_face_path:
             try:
                 Path(preprocessed_face_path).unlink()
                 metrics_tracker.add_log("✓ Cleaned up temporary face image")
+            except FileNotFoundError:
+                pass  # Already deleted, ignore
             except Exception as cleanup_error:
                 metrics_tracker.add_log(f"⚠️ Failed to cleanup face image: {cleanup_error}")
 

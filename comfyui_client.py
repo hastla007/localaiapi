@@ -14,6 +14,7 @@ structure to be overridden via Docker volumes.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -71,7 +72,8 @@ class ComfyUIClient:
     # Session helpers
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=None, sock_connect=30, sock_read=None)
+            # Set reasonable timeouts to prevent indefinite hangs
+            timeout = aiohttp.ClientTimeout(total=600, sock_connect=30, sock_read=300)
             self._session = aiohttp.ClientSession(timeout=timeout)
         return self._session
 
@@ -114,7 +116,7 @@ class ComfyUIClient:
             with workflow_path.open("r", encoding="utf-8") as handle:
                 self._workflow_cache[workflow_name] = json.load(handle)
         # Return a deep copy to avoid mutating the cached template
-        return json.loads(json.dumps(self._workflow_cache[workflow_name]))
+        return copy.deepcopy(self._workflow_cache[workflow_name])
 
     @staticmethod
     def _find_node_by_id(workflow: Dict[str, Any], node_id: str) -> Dict[str, Any]:
@@ -194,10 +196,17 @@ class ComfyUIClient:
             return payload.get(prompt_id)
 
     async def _wait_ws(self, prompt_id: str, timeout: int) -> Dict[str, Any]:
-        ws_url = self.base_url.replace("http", "ws", 1) + "/ws"
+        # Handle both http->ws and https->wss conversion
+        ws_url = self.base_url.replace("https", "wss", 1).replace("http", "ws", 1) + "/ws"
         async with websockets.connect(ws_url, ping_interval=20, ping_timeout=20, max_size=None) as websocket:
             await websocket.send(json.dumps({"client_id": self._client_id}))
-            while True:
+
+            # Add max iterations to prevent infinite loops on unexpected messages
+            max_iterations = timeout // 5  # Assume at least one message per 5 seconds
+            iteration = 0
+
+            while iteration < max_iterations:
+                iteration += 1
                 message = await asyncio.wait_for(websocket.recv(), timeout=timeout)
                 data = json.loads(message)
                 event_type = data.get("type")
@@ -209,6 +218,9 @@ class ComfyUIClient:
                     if history is None:
                         raise RuntimeError("ComfyUI finished but history is unavailable")
                     return history
+
+            # If we reached max iterations without completion
+            raise TimeoutError(f"WebSocket loop exceeded maximum iterations ({max_iterations})")
 
     async def _wait_poll(self, prompt_id: str, timeout: int, interval: float = 2.0) -> Dict[str, Any]:
         start = time.time()

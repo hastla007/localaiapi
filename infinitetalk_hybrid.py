@@ -69,13 +69,18 @@ class HybridInfiniteTalkPipeline:
             try:
                 # Convert PIL to numpy for MediaPipe
                 image_np = np.array(image)
+
+                # Handle grayscale images (convert to RGB)
+                if len(image_np.shape) == 2:
+                    image_np = np.stack([image_np] * 3, axis=-1)
+
                 results = self.face_detection.process(image_np)
-                
+
                 if results.detections:
                     # Get first detected face
                     detection = results.detections[0]
                     bboxC = detection.location_data.relative_bounding_box
-                    
+
                     ih, iw, _ = image_np.shape
                     
                     # Convert relative coordinates to absolute
@@ -187,17 +192,24 @@ class HybridInfiniteTalkPipeline:
         audio_path: str,
         num_frames: int = 120,
         fps: int = 25,
-        expression_scale: float = 1.0,  # Not used directly, but kept for API compatibility
-        head_motion_scale: float = 1.0,  # Not used directly, but kept for API compatibility
+        expression_scale: float = 1.0,  # Not used in hybrid mode (kept for API compatibility)
+        head_motion_scale: float = 1.0,  # Not used in hybrid mode (kept for API compatibility)
         generator: Optional[torch.Generator] = None,
         **kwargs
     ) -> str:
         """Generate talking head video using preprocessed face + ComfyUI WAN 2.1
-        
+
+        Note: expression_scale and head_motion_scale are not supported in hybrid mode
+        and will be ignored.
+
         Returns:
             Path to generated video file
         """
-        
+
+        # Warn if unsupported parameters are used
+        if expression_scale != 1.0 or head_motion_scale != 1.0:
+            logger.warning("expression_scale and head_motion_scale are not supported in hybrid mode and will be ignored")
+
         logger.info("=== Hybrid InfiniteTalk: Face Prep + WAN 2.1 ===")
         
         # Step 1: Preprocess face image

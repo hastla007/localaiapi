@@ -153,8 +153,25 @@ class ModelManager:
     def __init__(self, max_loaded_models: int = 2, model_timeout: int = 300):
         self.loaded_models: Dict[str, Any] = {}
         self.model_last_used: Dict[str, float] = {}
-        self.max_loaded_models = int(os.getenv("MAX_LOADED_MODELS", max_loaded_models))
-        self.model_timeout = int(os.getenv("MODEL_TIMEOUT", model_timeout))
+
+        # Parse environment variables with error handling
+        try:
+            self.max_loaded_models = int(os.getenv("MAX_LOADED_MODELS", max_loaded_models))
+        except ValueError as e:
+            warnings.warn(f"Invalid MAX_LOADED_MODELS environment variable, using default: {e}")
+            self.max_loaded_models = max_loaded_models
+
+        try:
+            self.model_timeout = int(os.getenv("MODEL_TIMEOUT", model_timeout))
+        except ValueError as e:
+            warnings.warn(f"Invalid MODEL_TIMEOUT environment variable, using default: {e}")
+            self.model_timeout = model_timeout
+
+        # Validate configuration values
+        if self.max_loaded_models < 1:
+            raise ValueError(f"max_loaded_models must be at least 1, got {self.max_loaded_models}")
+        if self.model_timeout < 0:
+            raise ValueError(f"model_timeout cannot be negative, got {self.model_timeout}")
 
         # Thread safety lock for model loading/unloading
         self._lock = threading.RLock()
@@ -178,7 +195,11 @@ class ModelManager:
             compatibility = "Yes" if self.cuda_compatible else "No (falling back to CPU)"
             print(f"  Compatible with PyTorch build: {compatibility}")
             if self.cuda_compatible:
-                print(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+                try:
+                    device_id = torch.cuda.current_device()
+                    print(f"  VRAM: {torch.cuda.get_device_properties(device_id).total_memory / 1e9:.2f} GB")
+                except Exception as e:
+                    print(f"  VRAM: Unable to query ({e})")
 
     def _initialize_device(self) -> None:
         """Determine whether CUDA can be safely used with the current PyTorch build."""
@@ -225,10 +246,12 @@ class ModelManager:
     def _cleanup_old_models(self):
         """Clean up old models to make room for new ones. Should be called with lock held."""
         if len(self.loaded_models) >= self.max_loaded_models:
-            sorted_models = sorted(self.model_last_used.items(), key=lambda x: x[1])
-            if not sorted_models:
+            # Ensure consistency: only consider models that are actually loaded
+            loaded_with_times = {k: v for k, v in self.model_last_used.items() if k in self.loaded_models}
+            if not loaded_with_times:
                 print("Warning: No models to unload despite reaching limit")
                 return
+            sorted_models = sorted(loaded_with_times.items(), key=lambda x: x[1])
             oldest_model = sorted_models[0][0]
             print(f"Unloading {oldest_model} to make room for new model")
             # Call internal unload without acquiring lock again (we already have it)
@@ -267,7 +290,11 @@ class ModelManager:
                 )
         elif model_key == "sdxl":
             dtype = self._select_dtype(torch.float16)
-            pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True, variant="fp16")
+            try:
+                pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True, variant="fp16")
+            except Exception as e:
+                warnings.warn(f"fp16 variant not found, loading default: {e}")
+                pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype, use_safetensors=True)
             pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         elif model_key == "sd3":
             dtype = self._select_dtype(torch.float16)
@@ -348,7 +375,11 @@ class ModelManager:
         skip_to_device = False
 
         if model_key == "svd":
-            pipe = StableVideoDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, variant="fp16")
+            try:
+                pipe = StableVideoDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype, variant="fp16")
+            except Exception as e:
+                warnings.warn(f"fp16 variant not found, loading default: {e}")
+                pipe = StableVideoDiffusionPipeline.from_pretrained(model_id, torch_dtype=dtype)
             if self.cuda_compatible:
                 pipe.enable_model_cpu_offload()
                 skip_to_device = True
@@ -378,11 +409,18 @@ class ModelManager:
             else:
                 # Fallback to SVD
                 print("  CogVideoX not available, using SVD as fallback")
-                pipe = StableVideoDiffusionPipeline.from_pretrained(
-                    "stabilityai/stable-video-diffusion-img2vid-xt",
-                    torch_dtype=dtype,
-                    variant="fp16"
-                )
+                try:
+                    pipe = StableVideoDiffusionPipeline.from_pretrained(
+                        "stabilityai/stable-video-diffusion-img2vid-xt",
+                        torch_dtype=dtype,
+                        variant="fp16"
+                    )
+                except Exception as e:
+                    warnings.warn(f"fp16 variant not found, loading default: {e}")
+                    pipe = StableVideoDiffusionPipeline.from_pretrained(
+                        "stabilityai/stable-video-diffusion-img2vid-xt",
+                        torch_dtype=dtype
+                    )
 
             if self.cuda_compatible:
                 pipe.enable_model_cpu_offload()
@@ -454,9 +492,15 @@ class ModelManager:
 
         controlnet = ControlNetModel.from_pretrained(model_id, torch_dtype=dtype)
         base_model_id = "stabilityai/stable-diffusion-xl-base-1.0"
-        pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-            base_model_id, controlnet=controlnet, torch_dtype=dtype, variant="fp16"
-        )
+        try:
+            pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+                base_model_id, controlnet=controlnet, torch_dtype=dtype, variant="fp16"
+            )
+        except Exception as e:
+            warnings.warn(f"fp16 variant not found, loading default: {e}")
+            pipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+                base_model_id, controlnet=controlnet, torch_dtype=dtype
+            )
 
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
         if self.cuda_compatible:
