@@ -4,6 +4,8 @@ import time
 from typing import Dict, Any, Optional, Tuple
 import os
 import warnings
+import asyncio
+import threading
 
 # Import diffusers components
 from diffusers import (
@@ -154,6 +156,9 @@ class ModelManager:
         self.max_loaded_models = int(os.getenv("MAX_LOADED_MODELS", max_loaded_models))
         self.model_timeout = int(os.getenv("MODEL_TIMEOUT", model_timeout))
 
+        # Thread safety lock for model loading/unloading
+        self._lock = threading.RLock()
+
         self.device = torch.device("cpu")
         self.cuda_compatible = False
         self.device_name = "CPU"
@@ -218,6 +223,7 @@ class ModelManager:
         return preferred_dtype
     
     def _cleanup_old_models(self):
+        """Clean up old models to make room for new ones. Should be called with lock held."""
         if len(self.loaded_models) >= self.max_loaded_models:
             sorted_models = sorted(self.model_last_used.items(), key=lambda x: x[1])
             if not sorted_models:
@@ -225,7 +231,8 @@ class ModelManager:
                 return
             oldest_model = sorted_models[0][0]
             print(f"Unloading {oldest_model} to make room for new model")
-            self.unload_model(oldest_model)
+            # Call internal unload without acquiring lock again (we already have it)
+            self._unload_model_internal(oldest_model)
     
     def _load_text_to_image_model(self, model_key: str):
         model_info = self.AVAILABLE_MODELS[model_key]
@@ -468,40 +475,43 @@ class ModelManager:
         return pipe
     
     def load_model(self, model_key: str, model_type: str):
-        if model_key not in self.AVAILABLE_MODELS:
-            raise ValueError(f"Unknown model: {model_key}")
-        
-        if model_key in self.loaded_models:
-            print(f"Using cached {model_key} model")
+        """Load a model with thread safety."""
+        with self._lock:
+            if model_key not in self.AVAILABLE_MODELS:
+                raise ValueError(f"Unknown model: {model_key}")
+
+            if model_key in self.loaded_models:
+                print(f"Using cached {model_key} model")
+                self.model_last_used[model_key] = time.time()
+                return self.loaded_models[model_key]
+
+            self._cleanup_old_models()
+
+            if model_type == "text-to-image":
+                model = self._load_text_to_image_model(model_key)
+            elif model_type == "image-to-text":
+                model = self._load_image_to_text_model(model_key)
+            elif model_type == "video-generation":
+                model = self._load_video_generation_model(model_key)
+            elif model_type == "controlnet":
+                model = self._load_controlnet_model(model_key)
+            elif model_type == "talking-head":
+                model = self._load_talking_head_model(model_key)
+            else:
+                raise ValueError(f"Unknown model type: {model_type}")
+
+            self.loaded_models[model_key] = model
             self.model_last_used[model_key] = time.time()
-            return self.loaded_models[model_key]
-        
-        self._cleanup_old_models()
-        
-        if model_type == "text-to-image":
-            model = self._load_text_to_image_model(model_key)
-        elif model_type == "image-to-text":
-            model = self._load_image_to_text_model(model_key)
-        elif model_type == "video-generation":
-            model = self._load_video_generation_model(model_key)
-        elif model_type == "controlnet":
-            model = self._load_controlnet_model(model_key)
-        elif model_type == "talking-head":
-            model = self._load_talking_head_model(model_key)
-        else:
-            raise ValueError(f"Unknown model type: {model_type}")
-        
-        self.loaded_models[model_key] = model
-        self.model_last_used[model_key] = time.time()
-        
-        if self.cuda_compatible:
-            vram_used = torch.cuda.memory_allocated() / 1e9
-            vram_cached = torch.cuda.memory_reserved() / 1e9
-            print(f"  VRAM used: {vram_used:.2f} GB, cached: {vram_cached:.2f} GB")
-        
-        return model
+
+            if self.cuda_compatible:
+                vram_used = torch.cuda.memory_allocated() / 1e9
+                vram_cached = torch.cuda.memory_reserved() / 1e9
+                print(f"  VRAM used: {vram_used:.2f} GB, cached: {vram_cached:.2f} GB")
+
+            return model
     
-    def unload_model(self, model_key: str):
+    def _unload_model_internal(self, model_key: str):
+        """Internal unload without acquiring lock (for use when lock is already held)."""
         if model_key in self.loaded_models:
             print(f"Unloading {model_key}...")
             del self.loaded_models[model_key]
@@ -511,27 +521,38 @@ class ModelManager:
                 torch.cuda.empty_cache()
                 vram_used = torch.cuda.memory_allocated() / 1e9
                 print(f"  VRAM after unload: {vram_used:.2f} GB")
+
+    def unload_model(self, model_key: str):
+        """Unload a specific model with thread safety."""
+        with self._lock:
+            self._unload_model_internal(model_key)
     
     def unload_all(self):
-        print("Unloading all models...")
-        self.loaded_models.clear()
-        self.model_last_used.clear()
-        gc.collect()
-        if self.cuda_compatible:
-            torch.cuda.empty_cache()
-            vram_used = torch.cuda.memory_allocated() / 1e9
-            print(f"  VRAM after clearing all: {vram_used:.2f} GB")
+        """Unload all models with thread safety."""
+        with self._lock:
+            print("Unloading all models...")
+            self.loaded_models.clear()
+            self.model_last_used.clear()
+            gc.collect()
+            if self.cuda_compatible:
+                torch.cuda.empty_cache()
+                vram_used = torch.cuda.memory_allocated() / 1e9
+                print(f"  VRAM after clearing all: {vram_used:.2f} GB")
     
     def get_loaded_models(self) -> list:
-        return list(self.loaded_models.keys())
-    
+        """Get list of loaded models with thread safety."""
+        with self._lock:
+            return list(self.loaded_models.keys())
+
     def get_model_stats(self) -> Dict[str, Any]:
-        stats = {}
-        for model_key, last_used in self.model_last_used.items():
-            time_since_used = time.time() - last_used
-            stats[model_key] = {
-                "loaded": True,
-                "last_used_seconds_ago": round(time_since_used, 2),
-                "vram_estimate_gb": self.AVAILABLE_MODELS[model_key]["vram_gb"]
-            }
-        return stats
+        """Get model statistics with thread safety."""
+        with self._lock:
+            stats = {}
+            for model_key, last_used in self.model_last_used.items():
+                time_since_used = time.time() - last_used
+                stats[model_key] = {
+                    "loaded": True,
+                    "last_used_seconds_ago": round(time_since_used, 2),
+                    "vram_estimate_gb": self.AVAILABLE_MODELS[model_key]["vram_gb"]
+                }
+            return stats

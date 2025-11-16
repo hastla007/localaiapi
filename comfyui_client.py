@@ -332,10 +332,14 @@ class ComfyUIClient:
 
 
 _comfyui_client: Optional[ComfyUIClient] = None
+_comfyui_client_lock = asyncio.Lock()
 
 
-def get_comfyui_client() -> ComfyUIClient:
+async def get_comfyui_client() -> ComfyUIClient:
     global _comfyui_client
     if _comfyui_client is None:
-        _comfyui_client = ComfyUIClient()
+        async with _comfyui_client_lock:
+            # Double-check pattern to avoid race condition
+            if _comfyui_client is None:
+                _comfyui_client = ComfyUIClient()
     return _comfyui_client
