@@ -243,10 +243,23 @@ def ensure_audio_format(audio_path: Path) -> Path:
         except FileNotFoundError:
             pass
 
-        converted_path.rename(audio_path)
-        metrics_tracker.add_log(
-            f"Audio normalized to 16kHz mono WAV: {audio_path.name}"
-        )
+        try:
+            # Rename returns the new Path object
+            audio_path = converted_path.rename(audio_path)
+            metrics_tracker.add_log(
+                f"Audio normalized to 16kHz mono WAV: {audio_path.name}"
+            )
+        except OSError as rename_error:
+            # Handle cross-device rename errors by copying and deleting
+            metrics_tracker.add_log(
+                f"Rename failed ({rename_error}), using copy instead"
+            )
+            import shutil
+            shutil.copy2(converted_path, audio_path)
+            converted_path.unlink()
+            metrics_tracker.add_log(
+                f"Audio normalized to 16kHz mono WAV: {audio_path.name}"
+            )
 
     except FileNotFoundError:
         metrics_tracker.add_log(
@@ -397,27 +410,51 @@ def save_video(frames: List, prefix: str = "video", fps: int = 8) -> str:
     if not out.isOpened():
         raise RuntimeError(f"Failed to create video file at {video_path}")
 
-    for frame in frames:
-        if len(frame.shape) == 3 and frame.shape[2] == 3:
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        else:
-            frame_bgr = frame
-        out.write(frame_bgr)
+    try:
+        for frame in frames:
+            if len(frame.shape) == 3 and frame.shape[2] == 3:
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            else:
+                frame_bgr = frame
+            out.write(frame_bgr)
+    finally:
+        # Always release the VideoWriter, even if an error occurs
+        out.release()
 
-    out.release()
     return video_path
 
 def decode_base64_image(base64_str: str) -> Image.Image:
+    """Decode base64 string to PIL Image with proper error handling"""
+    if not base64_str or not isinstance(base64_str, str):
+        raise ValueError("Image data must be a non-empty string")
+
     # Handle data URI format (e.g., "data:image/png;base64,...")
-    if base64_str.startswith("data:") and "," in base64_str:
+    if base64_str.startswith("data:"):
+        if "," not in base64_str:
+            raise ValueError("Invalid data URI format: missing comma separator")
         base64_str = base64_str.split(",", 1)[1]
+
     # Remove any whitespace
     base64_str = base64_str.strip()
+
+    if not base64_str:
+        raise ValueError("Image data is empty after processing")
+
     try:
-        image_data = base64.b64decode(base64_str)
-        return Image.open(BytesIO(image_data)).convert("RGB")
+        image_data = base64.b64decode(base64_str, validate=True)
+    except base64.binascii.Error as e:
+        raise ValueError(f"Invalid base64 encoding: {str(e)}")
+
+    if len(image_data) == 0:
+        raise ValueError("Decoded image data is empty")
+
+    try:
+        image = Image.open(BytesIO(image_data))
+        return image.convert("RGB")
+    except IOError as e:
+        raise ValueError(f"Invalid image data: {str(e)}")
     except Exception as e:
-        raise ValueError(f"Invalid base64 image data: {str(e)}")
+        raise ValueError(f"Failed to decode image: {str(e)}")
 
 def encode_image_to_base64(image: Image.Image) -> str:
     buffered = BytesIO()
@@ -507,9 +544,39 @@ async def get_settings():
 
 @app.post("/api/dashboard/settings")
 async def save_settings(settings: dict):
+    # Validate settings structure
+    allowed_keys = {"max_loaded_models", "model_timeout", "cuda_device", "api_port"}
+    if not isinstance(settings, dict):
+        raise HTTPException(status_code=400, detail="Settings must be a dictionary")
+
+    # Check for unknown keys
+    unknown_keys = set(settings.keys()) - allowed_keys
+    if unknown_keys:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown settings keys: {', '.join(unknown_keys)}"
+        )
+
+    # Validate individual settings
+    if "max_loaded_models" in settings:
+        if not isinstance(settings["max_loaded_models"], int) or settings["max_loaded_models"] < 1:
+            raise HTTPException(status_code=400, detail="max_loaded_models must be a positive integer")
+
+    if "model_timeout" in settings:
+        if not isinstance(settings["model_timeout"], int) or settings["model_timeout"] < 0:
+            raise HTTPException(status_code=400, detail="model_timeout must be a non-negative integer")
+
+    if "api_port" in settings:
+        if not isinstance(settings["api_port"], int) or not (1 <= settings["api_port"] <= 65535):
+            raise HTTPException(status_code=400, detail="api_port must be between 1 and 65535")
+
     settings_file = Path("/app/settings.json")
-    with open(settings_file, 'w') as f:
-        json.dump(settings, f)
+    try:
+        with open(settings_file, 'w') as f:
+            json.dump(settings, f, indent=2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save settings: {str(e)}")
+
     return {"success": True, "message": "Settings saved. Restart container to apply changes."}
 
 # ==================== HEALTH CHECK ====================
@@ -1146,10 +1213,27 @@ async def comfyui_status():
 @app.post("/api/unload/{model_name}")
 async def unload_model(model_name: str):
     try:
+        # Validate that the model exists in available models
+        if model_name not in model_manager.AVAILABLE_MODELS:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Model '{model_name}' not found. Available models: {list(model_manager.AVAILABLE_MODELS.keys())}"
+            )
+
+        # Check if the model is actually loaded before trying to unload
+        if model_name not in model_manager.loaded_models:
+            return JSONResponse({
+                "success": True,
+                "message": f"Model {model_name} was not loaded",
+                "loaded_models": model_manager.get_loaded_models()
+            })
+
         model_manager.unload_model(model_name)
         metrics_tracker.add_log(f"Model {model_name} unloaded")
         return JSONResponse({"success": True, "message": f"Model {model_name} unloaded",
                            "loaded_models": model_manager.get_loaded_models()})
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
