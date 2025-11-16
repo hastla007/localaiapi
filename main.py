@@ -614,7 +614,7 @@ async def generate_flux(request: TextToImageRequest):
         pipe = model_manager.load_model("flux", "text-to-image")
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device).manual_seed(request.seed)
         image = pipe(
             prompt=request.prompt, negative_prompt=request.negative_prompt, width=request.width,
             height=request.height, num_inference_steps=request.num_inference_steps,
@@ -640,7 +640,7 @@ async def generate_sdxl(request: TextToImageRequest):
         pipe = model_manager.load_model("sdxl", "text-to-image")
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device).manual_seed(request.seed)
         image = pipe(prompt=request.prompt, negative_prompt=request.negative_prompt, width=request.width,
                     height=request.height, num_inference_steps=request.num_inference_steps,
                     guidance_scale=request.guidance_scale, generator=generator).images[0]
@@ -662,7 +662,7 @@ async def generate_sd3(request: TextToImageRequest):
         pipe = model_manager.load_model("sd3", "text-to-image")
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device).manual_seed(request.seed)
         image = pipe(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
@@ -696,7 +696,7 @@ async def generate_pony(request: TextToImageRequest):
         pipe = model_manager.load_model("pony", "text-to-image")
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device).manual_seed(request.seed)
         image = pipe(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
@@ -833,7 +833,7 @@ async def controlnet_mistoline(request: ControlNetRequest):
         control_image = decode_base64_image(request.control_image)
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device).manual_seed(request.seed)
         output = pipe(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
@@ -871,7 +871,7 @@ async def controlnet_union(request: ControlNetRequest):
         control_image = decode_base64_image(request.control_image)
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
+            generator = torch.Generator(device=model_manager.device).manual_seed(request.seed)
         output = pipe(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
@@ -931,11 +931,11 @@ async def generate_video_animatediff(request: AnimateDiffRequest):
         start_time = time.time()
         
         pipe = model_manager.load_model("animatediff", "video-generation")
-        
+
         generator = None
         if request.seed is not None:
-            generator = torch.Generator(device=model_manager.device.type).manual_seed(request.seed)
-        
+            generator = torch.Generator(device=model_manager.device).manual_seed(request.seed)
+
         output = pipe(
             prompt=request.prompt,
             negative_prompt=request.negative_prompt,
@@ -979,7 +979,7 @@ async def generate_video_wan21(request: WAN21Request):
         image = decode_base64_image(request.image)
 
         # Acquire ComfyUI client and ensure service availability
-        comfyui = get_comfyui_client()
+        comfyui = await get_comfyui_client()
         if not await comfyui.health_check():
             raise HTTPException(
                 status_code=503,
@@ -1113,7 +1113,7 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
         metrics_tracker.add_log("Step 3: Generating talking head video with WAN 2.1...")
         
         # Check ComfyUI availability
-        comfyui = get_comfyui_client()
+        comfyui = await get_comfyui_client()
         if not await comfyui.health_check():
             raise HTTPException(
                 status_code=503,
@@ -1191,7 +1191,7 @@ async def generate_talking_head_infinitetalk(request: InfiniteTalkRequest):
 async def comfyui_status():
     """Check ComfyUI service availability"""
     try:
-        comfyui = get_comfyui_client()
+        comfyui = await get_comfyui_client()
         is_available = await comfyui.health_check()
 
         return {
